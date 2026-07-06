@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>지역난방 고객 지도 (내구연수 색상 + 세대수 크기)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="lib/leaflet/leaflet.css"/>
+  <style>
+    body{font-family:"Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",system-ui,Segoe UI,Arial,sans-serif;margin:10px}
+    #toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+    select,input[type=file],button{padding:6px 8px;font-size:14px}
+    #map{width:100%;height:88vh;border:1px solid #ddd;border-radius:8px}
+    .label{font-size:13px;color:#444;margin-right:4px}
+    .legend.info{line-height:1.2}
+    #dataStatus{font-size:12px;color:#666;margin-left:auto}
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <span class="label">다른 CSV 불러오기</span>
+    <input type="file" id="csvFile" accept=".csv" />
+
+    <span class="label">이름</span><select id="colName"></select>
+    <span class="label">주소</span><select id="colAddr"></select>
+    <span class="label">위도</span><select id="colLat"></select>
+    <span class="label">경도</span><select id="colLng"></select>
+    <span class="label">구</span><select id="colGu"></select>
+    <span class="label">세대수</span><select id="colHh"></select>
+    <span class="label">내구연수</span><select id="colLife"></select>
+    <span class="label">기계실등급</span><select id="colGrade"></select>
+    <span class="label">비고</span><select id="colNote"></select>
+
+    <button id="btnRender">지도 표시</button>
+    <span id="dataStatus"></span>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="lib/leaflet/leaflet.js"></script>
+  <!-- 고객 데이터: data/apartment_data.csv 를 scripts/csv_to_js.py 로 변환한 파일.
+       CSV를 갱신한 뒤 스크립트를 다시 돌리고, 이 페이지를 새로고침하면 최신 데이터가 반영됩니다. -->
+  <script src="data/apartment_data.js"></script>
+  <script>
+    // --- 지도 초기화 ---
+    const map = L.map('map').setView([37.4979, 127.0276], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let markers = [];
+    let parsedRows = [];
+    let headers = [];
+    let legend; // 범례 컨트롤 저장
+
+    // --------- 유틸 ----------
+    function toNum(x){
+      if (x==null) return NaN;
+      if (typeof x === "number") return x;
+      x = (""+x).replace(/[^\d\.\-]/g,"").trim();
+      const n = Number(x);
+      return isNaN(n)? NaN : n;
+    }
+
+    // CSV 파서 (수동으로 다른 CSV를 불러올 때 사용)
+    function parseCSV(text){
+      text = text.replace(/\r/g,"").trim();
+      const lines = text.split("\n").filter(Boolean);
+      if (lines.length < 2) return {headers:[], rows:[]};
+
+      const splitLine = (line) => {
+        const out = [];
+        let cur = '';
+        let quoted = false;
+        for (let i=0;i<line.length;i++){
+          const ch = line[i];
+          if (ch === '"'){
+            quoted = !quoted;
+          } else if (ch === ',' && !quoted){
+            out.push(cur);
+            cur = '';
+          } else {
+            cur += ch;
+          }
+        }
+        out.push(cur);
+        return out.map(s => s.replace(/^"(.*)"$/, '$1'));
+      };
+
+      const rawHeaders = splitLine(lines[0]).map(h => h.replace(/﻿/g,'').trim());
+      const rows = lines.slice(1).map(line => {
+        const cells = splitLine(line);
+        const row = {};
+        for (let i=0;i<rawHeaders.length;i++){
+          row[rawHeaders[i]] = (cells[i] ?? '').trim();
+        }
+        return row;
+      });
+      return {headers: rawHeaders, rows};
+    }
+
+    // 드롭다운 채우기
+    function fillHeaderSelects(hds){
+      const selects = [colName, colAddr, colLat, colLng, colGu, colHh, colLife, colGrade, colNote];
+      selects.forEach(sel => { sel.innerHTML = ""; });
+
+      const addOptions = (sel) => {
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "(없음)";
+        sel.appendChild(empty);
+        hds.forEach(h => {
+          const opt = document.createElement("option");
+          opt.value = h;
+          opt.textContent = h;
+          sel.appendChild(opt);
+        });
+      };
+      selects.forEach(addOptions);
+
+      const find = (cand) => {
+        cand = cand.map(s => s.toLowerCase());
+        let idx = hds.findIndex(h => cand.includes(h.toLowerCase()));
+        return idx >= 0 ? hds[idx] : "";
+      };
+
+      const guess = {
+        name: find(["아파트명","단지명","name","명칭","user","사용자명"]),
+        addr: find(["주소","address"]),
+        lat:  find(["위도","lat","latitude"]),
+        lng:  find(["경도","lng","lon","longitude"]),
+        gu:   find(["구","district","gu"]),
+        hh:   find(["세대수","households","hh"]),
+        life: find(["내구연수","durability","life","연수","사용연수"]),
+        grade:find(["기계실등급","등급","grade","class"]),
+        note: find(["비고","메모","note","remark"])
+      };
+
+      if (guess.name)  colName.value  = guess.name;
+      if (guess.addr)  colAddr.value  = guess.addr;
+      if (guess.lat)   colLat.value   = guess.lat;
+      if (guess.lng)   colLng.value   = guess.lng;
+      if (guess.gu)    colGu.value    = guess.gu;
+      if (guess.hh)    colHh.value    = guess.hh;
+      if (guess.life)  colLife.value  = guess.life;
+      if (guess.grade) colGrade.value = guess.grade;
+      if (guess.note)  colNote.value  = guess.note;
+    }
+
+    /************* 내구연수 색상 구간 설정 *************/
+    // 원하는 구간과 색상, 라벨을 수정하세요.
+    const LIFE_RANGES = [
+      { max: 9,  color: "#1f78b4", label: "0–9년" },
+      { max: 19, color: "#33a02c", label: "10–19년" },
+      { max: 29, color: "#ff7f00", label: "20–29년" },
+      { max: Infinity, color: "#e31a1c", label: "30년 이상" }
+    ];
+
+    function lifeToColor(lifeNum){
+      if (isNaN(lifeNum)) return "#888";
+      for (const r of LIFE_RANGES){
+        if (lifeNum <= r.max) return r.color;
+      }
+      return "#888";
+    }
+
+    /************* 세대수 크기 구간 설정 *************/
+    // 세대수 값에 따라 마커 반지름을 바꿉니다.
+    function hhToRadius(hhNum){
+      if (isNaN(hhNum)) return 7;
+      if (hhNum < 300) return 6;   // 소규모
+      if (hhNum < 600) return 10;  // 중간
+      return 14;                   // 대규모
+    }
+
+    // ------- 범례(legend) 생성 -------
+    function updateLegend(){
+      if (legend) legend.remove();
+      legend = L.control({position: 'bottomright'});
+      legend.onAdd = function () {
+        const div = L.DomUtil.create('div', 'info legend');
+        div.style.background = 'white';
+        div.style.padding = '8px 10px';
+        div.style.border = '1px solid #ddd';
+        div.style.borderRadius = '6px';
+        div.style.fontSize = '12px';
+        div.innerHTML = '<b>내구연수</b><br>';
+        LIFE_RANGES.forEach(r => {
+          div.innerHTML +=
+            `<i style="display:inline-block;width:12px;height:12px;background:${r.color};margin-right:6px;vertical-align:middle"></i>${r.label}<br>`;
+        });
+        div.innerHTML +=
+          `<i style="display:inline-block;width:12px;height:12px;background:#888;margin-right:6px;vertical-align:middle"></i>미지정`;
+        return div;
+      };
+      legend.addTo(map);
+    }
+    updateLegend();
+
+    // ------- 데이터 적용 공통 함수 -------
+    function loadData(hds, rows, statusText){
+      headers = hds;
+      parsedRows = rows;
+      fillHeaderSelects(hds);
+      dataStatus.textContent = statusText;
+      renderMap();
+    }
+
+    // ------- 수동 CSV 파일 로드 -------
+    csvFile.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const buf = await file.arrayBuffer();
+      const decoder = new TextDecoder('utf-8');
+      const text = decoder.decode(buf);
+
+      const {headers: h, rows} = parseCSV(text);
+      if (!h.length || !rows.length){
+        alert("CSV를 읽지 못했습니다. 헤더/내용을 확인하세요.");
+        return;
+      }
+      loadData(h, rows, `불러온 파일: ${file.name} (${rows.length}건)`);
+    });
+
+    // ------- 지도 표시 -------
+    function renderMap(){
+      if (!parsedRows.length){ return; }
+
+      const m = {
+        name:  colName.value, addr:  colAddr.value, lat:   colLat.value,
+        lng:   colLng.value,  gu:    colGu.value,  hh:    colHh.value,
+        life:  colLife.value, grade: colGrade.value, note: colNote.value
+      };
+      if (!m.lat || !m.lng){ alert("위도/경도 컬럼을 지정하세요."); return; }
+
+      markers.forEach(mk => map.removeLayer(mk));
+      markers = [];
+
+      let added = 0;
+      parsedRows.forEach(r => {
+        const lat = toNum(r[m.lat]);
+        const lng = toNum(r[m.lng]);
+        if (isNaN(lat) || isNaN(lng)) return;
+
+        const name  = (m.name  ? (r[m.name]  ?? "") : "").trim();
+        const addr  = (m.addr  ? (r[m.addr]  ?? "") : "").trim();
+        const gu    = (m.gu    ? (r[m.gu]    ?? "") : "").trim();
+        const grade = (m.grade ? (r[m.grade] ?? "") : "").trim();
+        const note  = (m.note  ? (r[m.note]  ?? "") : "").trim();
+
+        const hhRaw   = (m.hh   ? (r[m.hh]   ?? "") : "");
+        const lifeRaw = (m.life ? (r[m.life] ?? "") : "");
+
+        const hh   = (""+hhRaw).replace(/[^\d]/g,"");
+        const life = (""+lifeRaw).replace(/[^\d]/g,"");
+
+        const hhNum   = toNum(hh);
+        const lifeNum = toNum(life);
+
+        // 마커 생성
+        const marker = L.circleMarker([lat, lng], {
+          radius: hhToRadius(hhNum),
+          color: lifeToColor(lifeNum),
+          weight: 2,
+          fillColor: lifeToColor(lifeNum),
+          fillOpacity: 0.85
+        }).addTo(map);
+
+        // 팝업 내용
+        let html = `<b>${name || "(이름없음)"}</b>`;
+        if (addr) html += `<br>${addr}`;
+        const line2 = [gu, hh ? (Number(hh).toLocaleString()+" 세대") : "", life ? (life+"년") : ""].filter(Boolean).join(" · ");
+        if (line2) html += `<br>${line2}`;
+        const line3 = [grade ? `등급: ${grade}` : "", note].filter(Boolean).join(" · ");
+        if (line3) html += `<br>${line3}`;
+
+        marker.bindPopup(html);
+        markers.push(marker);
+        added++;
+      });
+
+      if (added > 0){
+        const g = L.featureGroup(markers);
+        map.fitBounds(g.getBounds().pad(0.2));
+      } else {
+        alert("표시할 좌표를 찾지 못했습니다. 열 매핑과 값(위도/경도)을 확인하세요.");
+      }
+    }
+
+    btnRender.addEventListener('click', renderMap);
+
+    // ------- 시작 시 자동 로드 -------
+    // data/apartment_data.js (APT_DATA)가 있으면 파일 선택 없이 바로 지도를 그립니다.
+    if (typeof APT_DATA !== "undefined" && APT_DATA.rows && APT_DATA.rows.length){
+      loadData(APT_DATA.headers, APT_DATA.rows, `자동 로드: data/apartment_data.csv (${APT_DATA.rows.length}건)`);
+    } else {
+      dataStatus.textContent = "data/apartment_data.js 없음 - CSV를 직접 불러오세요.";
+    }
+  </script>
+</body>
+</html>
