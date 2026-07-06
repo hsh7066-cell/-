@@ -8,6 +8,7 @@
   <style>
     body{font-family:"Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",system-ui,Segoe UI,Arial,sans-serif;margin:10px}
     #toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+    #filterBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:6px 8px;background:#f3f6fb;border-radius:6px}
     select,input[type=file],button{padding:6px 8px;font-size:14px}
     #map{width:100%;height:88vh;border:1px solid #ddd;border-radius:8px}
     .label{font-size:13px;color:#444;margin-right:4px}
@@ -34,6 +35,12 @@
     <span id="dataStatus"></span>
   </div>
 
+  <div id="filterBar">
+    <span class="label">아파트 선택(이동)</span><select id="filterName"></select>
+    <span class="label">기계실등급 필터</span><select id="filterGrade"></select>
+    <button id="btnFilterReset">필터 초기화</button>
+  </div>
+
   <div id="map"></div>
 
   <script src="lib/leaflet/leaflet.js"></script>
@@ -48,6 +55,7 @@
     }).addTo(map);
 
     let markers = [];
+    let markerEntries = []; // [{marker, name, grade}, ...] 필터/이동용
     let parsedRows = [];
     let headers = [];
     let legend; // 범례 컨트롤 저장
@@ -235,6 +243,7 @@
 
       markers.forEach(mk => map.removeLayer(mk));
       markers = [];
+      markerEntries = [];
 
       let added = 0;
       parsedRows.forEach(r => {
@@ -276,6 +285,7 @@
 
         marker.bindPopup(html);
         markers.push(marker);
+        markerEntries.push({ marker, name, grade });
         added++;
       });
 
@@ -285,9 +295,69 @@
       } else {
         alert("표시할 좌표를 찾지 못했습니다. 열 매핑과 값(위도/경도)을 확인하세요.");
       }
+
+      populateFilters();
     }
 
     btnRender.addEventListener('click', renderMap);
+
+    // ------- 필터/이동 UI -------
+    function populateFilters(){
+      const fillSelect = (sel, values, placeholder) => {
+        sel.innerHTML = "";
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = placeholder;
+        sel.appendChild(empty);
+        values.forEach(v => {
+          const opt = document.createElement("option");
+          opt.value = v;
+          opt.textContent = v;
+          sel.appendChild(opt);
+        });
+      };
+
+      const names = markerEntries.map(e => e.name).filter(Boolean);
+      const grades = [...new Set(markerEntries.map(e => e.grade).filter(Boolean))].sort();
+
+      fillSelect(filterName, names, "(아파트 선택)");
+      fillSelect(filterGrade, grades, "전체 보기");
+    }
+
+    filterName.addEventListener('change', () => {
+      const name = filterName.value;
+      if (!name) return;
+      const entry = markerEntries.find(e => e.name === name);
+      if (!entry) return;
+      map.flyTo(entry.marker.getLatLng(), 17);
+      entry.marker.openPopup();
+    });
+
+    filterGrade.addEventListener('change', () => {
+      const grade = filterGrade.value;
+      const visible = [];
+      markerEntries.forEach(e => {
+        const show = !grade || e.grade === grade;
+        if (show){
+          if (!map.hasLayer(e.marker)) e.marker.addTo(map);
+          visible.push(e.marker);
+        } else {
+          if (map.hasLayer(e.marker)) map.removeLayer(e.marker);
+        }
+      });
+      if (visible.length){
+        map.fitBounds(L.featureGroup(visible).getBounds().pad(0.2));
+      }
+    });
+
+    btnFilterReset.addEventListener('click', () => {
+      filterName.value = "";
+      filterGrade.value = "";
+      markerEntries.forEach(e => { if (!map.hasLayer(e.marker)) e.marker.addTo(map); });
+      if (markers.length){
+        map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
+      }
+    });
 
     // ------- 시작 시 자동 로드 -------
     // data/apartment_data.js (APT_DATA)가 있으면 파일 선택 없이 바로 지도를 그립니다.
