@@ -8,9 +8,12 @@
   <style>
     body{font-family:"Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",system-ui,Segoe UI,Arial,sans-serif;margin:10px}
     #toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
-    #filterBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:6px 8px;background:#f3f6fb;border-radius:6px}
+    #filterBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:8px 10px;background:#eaf2ff;border:1px solid #cfe0fa;border-radius:6px}
+    #advancedMapping{margin-bottom:8px}
+    #advancedMapping summary{cursor:pointer;font-size:13px;color:#666;padding:4px 0}
+    #advancedMapping .mappingRow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0 0}
     select,input[type=file],button{padding:6px 8px;font-size:14px}
-    #map{width:100%;height:88vh;border:1px solid #ddd;border-radius:8px}
+    #map{width:100%;height:86vh;border:1px solid #ddd;border-radius:8px}
     .label{font-size:13px;color:#444;margin-right:4px}
     .legend.info{line-height:1.2}
     #dataStatus{font-size:12px;color:#666;margin-left:auto}
@@ -20,26 +23,30 @@
   <div id="toolbar">
     <span class="label">다른 CSV 불러오기</span>
     <input type="file" id="csvFile" accept=".csv" />
-
-    <span class="label">이름</span><select id="colName"></select>
-    <span class="label">주소</span><select id="colAddr"></select>
-    <span class="label">위도</span><select id="colLat"></select>
-    <span class="label">경도</span><select id="colLng"></select>
-    <span class="label">구</span><select id="colGu"></select>
-    <span class="label">세대수</span><select id="colHh"></select>
-    <span class="label">내구연수</span><select id="colLife"></select>
-    <span class="label">기계실등급</span><select id="colGrade"></select>
-    <span class="label">비고</span><select id="colNote"></select>
-
-    <button id="btnRender">지도 표시</button>
     <span id="dataStatus"></span>
   </div>
 
   <div id="filterBar">
-    <span class="label">아파트 선택(이동)</span><select id="filterName"></select>
+    <span class="label">아파트 검색(이동)</span><select id="filterName"></select>
     <span class="label">기계실등급 필터</span><select id="filterGrade"></select>
-    <button id="btnFilterReset">필터 초기화</button>
+    <button id="btnFilterReset">전체 보기</button>
   </div>
+
+  <details id="advancedMapping">
+    <summary>고급 설정: CSV 컬럼 매핑 (열 이름이 다를 때만 펼쳐서 수정하세요)</summary>
+    <div class="mappingRow">
+      <span class="label">이름</span><select id="colName"></select>
+      <span class="label">주소</span><select id="colAddr"></select>
+      <span class="label">위도</span><select id="colLat"></select>
+      <span class="label">경도</span><select id="colLng"></select>
+      <span class="label">구</span><select id="colGu"></select>
+      <span class="label">세대수</span><select id="colHh"></select>
+      <span class="label">내구연수</span><select id="colLife"></select>
+      <span class="label">기계실등급</span><select id="colGrade"></select>
+      <span class="label">비고</span><select id="colNote"></select>
+      <button id="btnRender">이 매핑으로 다시 그리기</button>
+    </div>
+  </details>
 
   <div id="map"></div>
 
@@ -362,7 +369,7 @@
     // ------- 시작 시 자동 로드 -------
     // data/apartment_data.js (APT_DATA)가 있으면 파일 선택 없이 바로 지도를 그립니다.
     if (typeof APT_DATA !== "undefined" && APT_DATA.rows && APT_DATA.rows.length){
-      loadData(APT_DATA.headers, APT_DATA.rows, `자동 로드: data/apartment_data.csv (${APT_DATA.rows.length}건)`);
+      loadData(APT_DATA.headers, APT_DATA.rows, `기본 데이터 표시 중(최근 저장본, ${APT_DATA.rows.length}건) - 최신 정보가 아니면 위에서 CSV를 다시 불러오세요.`);
     } else {
       dataStatus.textContent = "data/apartment_data.js 없음 - CSV를 직접 불러오세요.";
     }
