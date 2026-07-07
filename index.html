@@ -27,8 +27,10 @@
   </div>
 
   <div id="filterBar">
-    <span class="label">아파트 검색(이동)</span><select id="filterName"></select>
-    <span class="label">기계실등급 필터</span><select id="filterGrade"></select>
+    <span class="label">아파트 선택</span><select id="filterName"></select>
+    <span class="label">세대수</span><select id="filterHh"></select>
+    <span class="label">내구연수</span><select id="filterLife"></select>
+    <span class="label">기계실등급</span><select id="filterGrade"></select>
     <button id="btnFilterReset">전체 보기</button>
   </div>
 
@@ -51,9 +53,6 @@
   <div id="map"></div>
 
   <script src="lib/leaflet/leaflet.js"></script>
-  <!-- 고객 데이터: data/apartment_data.csv 를 scripts/csv_to_js.py 로 변환한 파일.
-       CSV를 갱신한 뒤 스크립트를 다시 돌리고, 이 페이지를 새로고침하면 최신 데이터가 반영됩니다. -->
-  <script src="data/apartment_data.js"></script>
   <script>
     // --- 지도 초기화 ---
     const map = L.map('map').setView([37.4979, 127.0276], 12);
@@ -178,13 +177,36 @@
       return "#888";
     }
 
+    function lifeToRangeLabel(lifeNum){
+      if (isNaN(lifeNum)) return "";
+      for (const r of LIFE_RANGES){
+        if (lifeNum <= r.max) return r.label;
+      }
+      return "";
+    }
+
     /************* 세대수 크기 구간 설정 *************/
-    // 세대수 값에 따라 마커 반지름을 바꿉니다.
+    // 세대수 값에 따라 마커 반지름을 바꿉니다. 필터 드롭다운도 이 구간을 사용합니다.
+    const HH_RANGES = [
+      { max: 299, radius: 6,  label: "300세대 미만" },
+      { max: 599, radius: 10, label: "300~599세대" },
+      { max: Infinity, radius: 14, label: "600세대 이상" }
+    ];
+
     function hhToRadius(hhNum){
       if (isNaN(hhNum)) return 7;
-      if (hhNum < 300) return 6;   // 소규모
-      if (hhNum < 600) return 10;  // 중간
-      return 14;                   // 대규모
+      for (const r of HH_RANGES){
+        if (hhNum <= r.max) return r.radius;
+      }
+      return 14;
+    }
+
+    function hhToRangeLabel(hhNum){
+      if (isNaN(hhNum)) return "";
+      for (const r of HH_RANGES){
+        if (hhNum <= r.max) return r.label;
+      }
+      return "";
     }
 
     // ------- 범례(legend) 생성 -------
@@ -292,7 +314,11 @@
 
         marker.bindPopup(html);
         markers.push(marker);
-        markerEntries.push({ marker, name, grade });
+        markerEntries.push({
+          marker, name, grade,
+          hhLabel: hhToRangeLabel(hhNum),
+          lifeLabel: lifeToRangeLabel(lifeNum)
+        });
         added++;
       });
 
@@ -324,41 +350,66 @@
         });
       };
 
-      const names = markerEntries.map(e => e.name).filter(Boolean);
+      const names  = markerEntries.map(e => e.name).filter(Boolean);
       const grades = [...new Set(markerEntries.map(e => e.grade).filter(Boolean))].sort();
+      // 세대수/내구연수는 값이 아니라 정해진 구간(HH_RANGES/LIFE_RANGES) 순서대로 보여줌
+      const hhLabels   = HH_RANGES.map(r => r.label)
+        .filter(l => markerEntries.some(e => e.hhLabel === l));
+      const lifeLabels = LIFE_RANGES.map(r => r.label)
+        .filter(l => markerEntries.some(e => e.lifeLabel === l));
 
       fillSelect(filterName, names, "(아파트 선택)");
+      fillSelect(filterHh, hhLabels, "전체 보기");
+      fillSelect(filterLife, lifeLabels, "전체 보기");
       fillSelect(filterGrade, grades, "전체 보기");
     }
 
-    filterName.addEventListener('change', () => {
-      const name = filterName.value;
-      if (!name) return;
-      const entry = markerEntries.find(e => e.name === name);
-      if (!entry) return;
-      map.flyTo(entry.marker.getLatLng(), 17);
-      entry.marker.openPopup();
-    });
+    // 아파트/세대수/내구연수/기계실등급 필터를 모두 반영해 지도에 표시
+    function applyFilters(){
+      const nameVal  = filterName.value;
+      const hhVal    = filterHh.value;
+      const lifeVal  = filterLife.value;
+      const gradeVal = filterGrade.value;
 
-    filterGrade.addEventListener('change', () => {
-      const grade = filterGrade.value;
-      const visible = [];
+      let visible;
+      if (nameVal){
+        // 아파트를 직접 선택했을 때는 그 아파트 하나만 표시
+        visible = markerEntries.filter(e => e.name === nameVal);
+      } else {
+        visible = markerEntries.filter(e => {
+          if (hhVal && e.hhLabel !== hhVal) return false;
+          if (lifeVal && e.lifeLabel !== lifeVal) return false;
+          if (gradeVal && e.grade !== gradeVal) return false;
+          return true;
+        });
+      }
+
+      const visibleSet = new Set(visible);
       markerEntries.forEach(e => {
-        const show = !grade || e.grade === grade;
-        if (show){
+        if (visibleSet.has(e)){
           if (!map.hasLayer(e.marker)) e.marker.addTo(map);
-          visible.push(e.marker);
         } else {
           if (map.hasLayer(e.marker)) map.removeLayer(e.marker);
         }
       });
-      if (visible.length){
-        map.fitBounds(L.featureGroup(visible).getBounds().pad(0.2));
+
+      if (visible.length === 1){
+        map.flyTo(visible[0].marker.getLatLng(), 17);
+        visible[0].marker.openPopup();
+      } else if (visible.length > 1){
+        map.fitBounds(L.featureGroup(visible.map(e => e.marker)).getBounds().pad(0.2));
       }
-    });
+    }
+
+    filterName.addEventListener('change', applyFilters);
+    filterHh.addEventListener('change', applyFilters);
+    filterLife.addEventListener('change', applyFilters);
+    filterGrade.addEventListener('change', applyFilters);
 
     btnFilterReset.addEventListener('click', () => {
       filterName.value = "";
+      filterHh.value = "";
+      filterLife.value = "";
       filterGrade.value = "";
       markerEntries.forEach(e => { if (!map.hasLayer(e.marker)) e.marker.addTo(map); });
       if (markers.length){
@@ -366,13 +417,9 @@
       }
     });
 
-    // ------- 시작 시 자동 로드 -------
-    // data/apartment_data.js (APT_DATA)가 있으면 파일 선택 없이 바로 지도를 그립니다.
-    if (typeof APT_DATA !== "undefined" && APT_DATA.rows && APT_DATA.rows.length){
-      loadData(APT_DATA.headers, APT_DATA.rows, `기본 데이터 표시 중(최근 저장본, ${APT_DATA.rows.length}건) - 최신 정보가 아니면 위에서 CSV를 다시 불러오세요.`);
-    } else {
-      dataStatus.textContent = "data/apartment_data.js 없음 - CSV를 직접 불러오세요.";
-    }
+    // ------- 시작 상태 -------
+    // 처음에는 아무 데이터도 표시하지 않고, CSV를 직접 불러왔을 때만 지도를 그립니다.
+    dataStatus.textContent = "위에서 CSV 파일을 선택하면 지도에 표시됩니다.";
   </script>
 </body>
 </html>
