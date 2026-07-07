@@ -364,7 +364,13 @@
       fillSelect(filterGrade, grades, "전체 보기");
     }
 
-    // 아파트/세대수/내구연수/기계실등급 필터를 모두 반영해 지도에 표시
+    // 필터는 한 번에 하나만 적용됩니다. 하나를 고르면 나머지는 자동으로 초기화됩니다.
+    function clearOtherFilters(keepEl){
+      [filterName, filterHh, filterLife, filterGrade].forEach(sel => {
+        if (sel !== keepEl) sel.value = "";
+      });
+    }
+
     function applyFilters(){
       const nameVal  = filterName.value;
       const hhVal    = filterHh.value;
@@ -372,17 +378,11 @@
       const gradeVal = filterGrade.value;
 
       let visible;
-      if (nameVal){
-        // 아파트를 직접 선택했을 때는 그 아파트 하나만 표시
-        visible = markerEntries.filter(e => e.name === nameVal);
-      } else {
-        visible = markerEntries.filter(e => {
-          if (hhVal && e.hhLabel !== hhVal) return false;
-          if (lifeVal && e.lifeLabel !== lifeVal) return false;
-          if (gradeVal && e.grade !== gradeVal) return false;
-          return true;
-        });
-      }
+      if (nameVal)       visible = markerEntries.filter(e => e.name === nameVal);
+      else if (hhVal)    visible = markerEntries.filter(e => e.hhLabel === hhVal);
+      else if (lifeVal)  visible = markerEntries.filter(e => e.lifeLabel === lifeVal);
+      else if (gradeVal) visible = markerEntries.filter(e => e.grade === gradeVal);
+      else               visible = markerEntries.slice();
 
       const visibleSet = new Set(visible);
       markerEntries.forEach(e => {
@@ -401,10 +401,10 @@
       }
     }
 
-    filterName.addEventListener('change', applyFilters);
-    filterHh.addEventListener('change', applyFilters);
-    filterLife.addEventListener('change', applyFilters);
-    filterGrade.addEventListener('change', applyFilters);
+    filterName.addEventListener('change',  () => { clearOtherFilters(filterName);  applyFilters(); });
+    filterHh.addEventListener('change',    () => { clearOtherFilters(filterHh);    applyFilters(); });
+    filterLife.addEventListener('change',  () => { clearOtherFilters(filterLife);  applyFilters(); });
+    filterGrade.addEventListener('change', () => { clearOtherFilters(filterGrade); applyFilters(); });
 
     btnFilterReset.addEventListener('click', () => {
       filterName.value = "";
