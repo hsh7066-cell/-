@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>산업안전보건관리비 증빙 검증 대시보드</title>
+<style>
+  :root {
+    --bg: #EEF1EF; --surface: #FFFFFF; --surface-2: #F5F8F6;
+    --ink: #172227; --ink-soft: #57666C; --ink-faint: #8A9A97;
+    --line: #D8DFDC; --line-strong: #BFCAC6;
+    --accent: #0B6E63; --accent-soft: #DCEEEA;
+    --ok: #2E7D46; --ok-soft: #E4F3E7; --ok-line: #BEE0C6;
+    --fail: #AF2E24; --fail-soft: #FBE7E5; --fail-line: #F0C4BE;
+    --warn: #93630D; --warn-soft: #FBF0DA; --warn-line: #EAD6A0;
+    --shadow: 0 1px 2px rgba(23,34,39,0.06), 0 8px 24px -12px rgba(23,34,39,0.18);
+    --font-sans: "Pretendard Variable","Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --font-mono: ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0F1514; --surface:#171F1E; --surface-2:#1D2726;
+      --ink:#E7EEEC; --ink-soft:#9FB1AD; --ink-faint:#6C807B;
+      --line:#2A3634; --line-strong:#384744;
+      --accent:#4FBBA8; --accent-soft: rgba(79,187,168,0.14);
+      --ok:#7ED08A; --ok-soft: rgba(126,208,138,0.12); --ok-line: rgba(126,208,138,0.35);
+      --fail:#F2887E; --fail-soft: rgba(242,136,126,0.12); --fail-line: rgba(242,136,126,0.35);
+      --warn:#E7BD6C; --warn-soft: rgba(231,189,108,0.12); --warn-line: rgba(231,189,108,0.35);
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 28px -14px rgba(0,0,0,0.55);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: var(--font-sans); color: var(--ink); background: var(--bg); line-height:1.5; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 80px; }
+
+  .masthead { padding: 22px 26px; background: var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow: var(--shadow); }
+  .eyebrow { font-size:12.5px; font-weight:700; letter-spacing:.09em; color:var(--accent); text-transform:uppercase; margin:0 0 8px; }
+  h1 { font-size:23px; font-weight:800; margin:0 0 6px; letter-spacing:-0.01em; }
+  .lede { font-size:13.5px; color: var(--ink-soft); margin:0; max-width: 68ch; }
+
+  .section { margin-top:22px; background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow: var(--shadow); overflow:hidden; }
+  .section-head { padding:16px 22px; border-bottom:1px solid var(--line); background:var(--surface-2); }
+  .section-head .tag { font-size:11.5px; font-weight:700; color:var(--accent); text-transform:uppercase; letter-spacing:.08em; margin:0 0 3px; }
+  .section-head h2 { font-size:17px; margin:0; font-weight:800; }
+  .section-head p.rule { font-size:12.5px; color:var(--ink-faint); margin:5px 0 0; max-width:64ch; }
+  .section-body { padding:22px; }
+
+  label.field { display:block; font-size:12.5px; font-weight:700; color:var(--ink-soft); margin:0 0 6px; }
+  .field-row { display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin-bottom:14px; }
+  @media (max-width:600px){ .field-row{ grid-template-columns:1fr; } }
+  input[type=text] {
+    width:100%; padding:9px 11px; border:1px solid var(--line-strong); border-radius:9px; background:var(--surface-2);
+    color:var(--ink); font-size:13.5px; font-family:var(--font-sans);
+  }
+  input[type=text]:focus { outline:2px solid var(--accent); outline-offset:1px; }
+
+  .file-row { display:flex; flex-direction:column; gap:12px; margin-bottom:16px; }
+  .file-field { border:1px dashed var(--line-strong); border-radius:10px; padding:12px 14px; background:var(--surface-2); }
+  .file-field .ff-label { font-size:13px; font-weight:700; margin:0 0 2px; }
+  .file-field .ff-sub { font-size:11.5px; color:var(--ink-faint); margin:0 0 8px; }
+  .file-field input[type=file] { font-size:12.5px; color:var(--ink-soft); max-width:100%; }
+
+  button.primary {
+    background: var(--accent); color:#fff; border:none; border-radius:9px; padding:10px 18px;
+    font-size:13.5px; font-weight:700; cursor:pointer; font-family:var(--font-sans);
+  }
+  button.primary:hover { filter:brightness(1.05); }
+  button.primary:disabled { opacity:.55; cursor:not-allowed; }
+  button.primary .spinner { display:none; }
+  button.primary.loading .spinner { display:inline-block; }
+
+  .result-area { margin-top:18px; }
+  .error-box { border:1px solid var(--fail-line); background:var(--fail-soft); color:var(--fail); border-radius:10px; padding:11px 14px; font-size:13px; }
+
+  table.fields { width:100%; border-collapse:collapse; font-size:12.8px; margin-bottom:10px; }
+  table.fields th, table.fields td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); vertical-align:top; }
+  table.fields th { color:var(--ink-faint); font-weight:600; font-size:11.5px; white-space:nowrap; }
+  table.fields td.mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  .doc-tables { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; margin-bottom:6px; }
+  .doc-table-card { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .doc-table-card h4 { margin:0; font-size:12px; font-weight:700; padding:8px 10px; background:var(--surface-2); border-bottom:1px solid var(--line); }
+  .doc-table-card table.fields { margin:0; }
+  .doc-table-card table.fields td, .doc-table-card table.fields th { padding:6px 9px; }
+
+  .check-list { list-style:none; margin:14px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
+  .check-item { display:flex; gap:10px; align-items:flex-start; font-size:13px; padding:9px 12px; border:1px solid var(--line); border-radius:9px; background:var(--surface-2); }
+  .check-item .mark { flex-shrink:0; width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; margin-top:1px; }
+  .check-item.ok .mark { background:var(--ok-soft); color:var(--ok); border:1px solid var(--ok-line); }
+  .check-item.fail .mark { background:var(--fail-soft); color:var(--fail); border:1px solid var(--fail-line); }
+  .check-item.warn .mark { background:var(--warn-soft); color:var(--warn); border:1px solid var(--warn-line); }
+  .check-item b { display:block; margin-bottom:1px; }
+  .check-item span.d { color:var(--ink-soft); }
+
+  .stamp {
+    display:inline-flex; flex-direction:column; align-items:center; justify-content:center; min-width:100px;
+    padding:8px 12px; border-radius:10px; border:2.5px solid var(--ink-soft); color:var(--ink-soft); background:var(--surface-2);
+    transform: rotate(-3deg); font-weight:800; letter-spacing:.03em; text-align:center; margin-bottom:12px;
+  }
+  .stamp .st-top { font-size:10px; letter-spacing:.12em; opacity:.8; text-transform:uppercase; }
+  .stamp .st-main { font-size:15px; margin-top:2px; }
+  .stamp.ok { border-color:var(--ok); color:var(--ok); background:var(--ok-soft); }
+  .stamp.fail { border-color:var(--fail); color:var(--fail); background:var(--fail-soft); }
+  .stamp.warn { border-color:var(--warn); color:var(--warn); background:var(--warn-soft); }
+
+  .photo-preview { max-width:220px; border-radius:10px; border:1px solid var(--line); margin-bottom:14px; display:none; }
+
+  .footnote { margin-top:22px; font-size:12px; color:var(--ink-faint); line-height:1.7; border-top:1px solid var(--line); padding-top:14px; }
+  .footnote b { color:var(--ink-soft); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">산업안전보건관리비 실적정산 증빙 · AI 검증</p>
+    <h1>세금계산서 · 증빙사진 검증 대시보드</h1>
+    <p class="lede">업로드한 문서/사진을 Claude API로 직접 읽어 승인번호 대사, 사진 적정성, 비고란 표기 여부를 판정합니다.</p>
+  </header>
+
+  <!-- ================= CHECK 1 & 3 : 세금계산서 ================= -->
+  <section class="section">
+    <div class="section-head">
+      <p class="tag">Check 1 · 3</p>
+      <h2>세금계산서 발급대사 &amp; 비고란 지사명·계약명 확인</h2>
+      <p class="rule">원본 세금계산서는 필수, 홈택스 발급사실조회 캡처와 수정발급 세금계산서는 있으면 함께 첨부하세요. 국세청 실시간 조회 자체는 이 도구가 대신 할 수 없어, 담당자가 홈택스에서 직접 조회해 캡처한 화면을 비교 대상으로 사용합니다.</p>
+    </div>
+    <div class="section-body">
+      <form id="invoiceForm">
+        <div class="field-row">
+          <div>
+            <label class="field" for="expectedBranch">지사명 (비고란 대사 기준)</label>
+            <input type="text" id="expectedBranch" placeholder="예: 강남지사">
+          </div>
+          <div>
+            <label class="field" for="expectedContract">계약명 (비고란 대사 기준)</label>
+            <input type="text" id="expectedContract" placeholder="예: 강남지사 경계석 개선 공사">
+          </div>
+        </div>
+
+        <div class="file-row">
+          <div class="file-field">
+            <p class="ff-label">① 원본 세금계산서 <span style="color:var(--fail)">*필수</span></p>
+            <p class="ff-sub">이미지 또는 PDF</p>
+            <input type="file" id="fOriginal" accept="image/*,application/pdf" required>
+          </div>
+          <div class="file-field">
+            <p class="ff-label">② 홈택스 제3자 발급사실 조회 캡처화면</p>
+            <p class="ff-sub">있는 경우에만 첨부 — 원본 승인번호와 자동 대사합니다</p>
+            <input type="file" id="fIssuance" accept="image/*,application/pdf">
+          </div>
+          <div class="file-field">
+            <p class="ff-label">③ 수정(재발급) 세금계산서</p>
+            <p class="ff-sub">수정발급 건이 있는 경우에만 첨부</p>
+            <input type="file" id="fRevised" accept="image/*,application/pdf">
+          </div>
+        </div>
+
+        <button class="primary" type="submit" id="invoiceSubmit">검증하기</button>
+      </form>
+      <div class="result-area" id="invoiceResult"></div>
+    </div>
+  </section>
+
+  <!-- ================= CHECK 2 : 사진 ================= -->
+  <section class="section">
+    <div class="section-head">
+      <p class="tag">Check 2</p>
+      <h2>물품·시설 증빙사진 AI 판정</h2>
+      <p class="rule">근거: 산업안전보건관리비 사진대지 작성방법 — 현황판으로 촬영일자·수량 명기, 박스 개봉 확인, 근접촬영 금지 등.</p>
+    </div>
+    <div class="section-body">
+      <form id="photoForm">
+        <div class="field-row">
+          <div>
+            <label class="field" for="itemLabel">품목명 (선택)</label>
+            <input type="text" id="itemLabel" placeholder="예: 안전장화 2EA 구매">
+          </div>
+        </div>
+        <div class="file-row">
+          <div class="file-field">
+            <p class="ff-label">증빙사진</p>
+            <p class="ff-sub">이미지 또는 PDF</p>
+            <input type="file" id="fPhoto" accept="image/*,application/pdf" required>
+          </div>
+        </div>
+        <img class="photo-preview" id="photoPreview" alt="선택한 사진 미리보기">
+        <br>
+        <button class="primary" type="submit" id="photoSubmit">AI 판정 요청</button>
+      </form>
+      <div class="result-area" id="photoResult"></div>
+    </div>
+  </section>
+
+  <p class="footnote">
+    <b>안내</b> — 이 페이지는 로컬에서 실행되는 도구로, 업로드한 파일은 사용자의 서버(로컬 PC)를 거쳐 Anthropic Claude API로 전송되어 분석됩니다.
+    국세청 홈택스 실시간 발급사실 조회는 사업자 인증서 로그인이 필요한 국세청 자체 시스템이라 자동화할 수 없으며, AI 판정 결과는 최종 승인 전
+    담당자의 육안 재확인을 권장합니다.
+  </p>
+</div>
+
+<script>
+  function statusLabel(s) { return s === "ok" ? "정상" : s === "fail" ? "위반" : "확인필요"; }
+
+  function renderChecks(checks) {
+    var ul = document.createElement("ul");
+    ul.className = "check-list";
+    checks.forEach(function (c) {
+      var li = document.createElement("li");
+      li.className = "check-item " + c.status;
+      var mark = document.createElement("span");
+      mark.className = "mark";
+      mark.textContent = c.status === "ok" ? "✓" : c.status === "fail" ? "✕" : "!";
+      var txt = document.createElement("span");
+      var b = document.createElement("b");
+      b.textContent = c.title;
+      var d = document.createElement("span");
+      d.className = "d";
+      d.textContent = c.detail;
+      txt.appendChild(b);
+      txt.appendChild(d);
+      li.appendChild(mark);
+      li.appendChild(txt);
+      ul.appendChild(li);
+    });
+    return ul;
+  }
+
+  function fieldRow(label, value) {
+    var tr = document.createElement("tr");
+    var th = document.createElement("th");
+    th.textContent = label;
+    var td = document.createElement("td");
+    td.className = "mono";
+    td.textContent = (value === null || value === undefined || value === "") ? "—" : value;
+    tr.appendChild(th);
+    tr.appendChild(td);
+    return tr;
+  }
+
+  function docCard(title, f) {
+    if (!f) return null;
+    var card = document.createElement("div");
+    card.className = "doc-table-card";
+    var h4 = document.createElement("h4");
+    h4.textContent = title;
+    var table = document.createElement("table");
+    table.className = "fields";
+    table.appendChild(fieldRow("승인번호", f.approval_number));
+    table.appendChild(fieldRow("작성/발급일자", f.issue_date));
+    table.appendChild(fieldRow("합계금액", f.total_amount != null ? Number(f.total_amount).toLocaleString() + "원" : null));
+    table.appendChild(fieldRow("비고", f.remark));
+    table.appendChild(fieldRow("수정사유", f.modification_reason));
+    card.appendChild(h4);
+    card.appendChild(table);
+    return card;
+  }
+
+  var invoiceForm = document.getElementById("invoiceForm");
+  var invoiceSubmit = document.getElementById("invoiceSubmit");
+  var invoiceResult = document.getElementById("invoiceResult");
+
+  invoiceForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var original = document.getElementById("fOriginal").files[0];
+    if (!original) return;
+
+    var fd = new FormData();
+    fd.append("expected_branch", document.getElementById("expectedBranch").value);
+    fd.append("expected_contract", document.getElementById("expectedContract").value);
+    fd.append("original_invoice", original);
+    var issuance = document.getElementById("fIssuance").files[0];
+    var revised = document.getElementById("fRevised").files[0];
+    if (issuance) fd.append("issuance_check", issuance);
+    if (revised) fd.append("revised_invoice", revised);
+
+    invoiceSubmit.disabled = true;
+    invoiceSubmit.textContent = "분석 중…";
+    invoiceResult.innerHTML = "";
+
+    try {
+      var res = await fetch("/api/analyze/invoice-set", { method: "POST", body: fd });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "요청 실패");
+
+      var stamp = document.createElement("div");
+      stamp.className = "stamp " + data.overall;
+      stamp.innerHTML = '<span class="st-top">종합판정</span><span class="st-main">' + statusLabel(data.overall) + "</span>";
+      invoiceResult.appendChild(stamp);
+
+      var docs = document.createElement("div");
+      docs.className = "doc-tables";
+      [["원본 세금계산서", data.fields.original], ["홈택스 발급사실조회", data.fields.issuance_check], ["수정발급 세금계산서", data.fields.revised]]
+        .forEach(function (pair) {
+          var card = docCard(pair[0], pair[1]);
+          if (card) docs.appendChild(card);
+        });
+      invoiceResult.appendChild(docs);
+      invoiceResult.appendChild(renderChecks(data.checks));
+    } catch (err) {
+      var box = document.createElement("div");
+      box.className = "error-box";
+      box.textContent = err.message;
+      invoiceResult.appendChild(box);
+    } finally {
+      invoiceSubmit.disabled = false;
+      invoiceSubmit.textContent = "검증하기";
+    }
+  });
+
+  var photoInput = document.getElementById("fPhoto");
+  var photoPreview = document.getElementById("photoPreview");
+  photoInput.addEventListener("change", function () {
+    var f = photoInput.files[0];
+    if (f && f.type.indexOf("image/") === 0) {
+      photoPreview.src = URL.createObjectURL(f);
+      photoPreview.style.display = "block";
+    } else {
+      photoPreview.style.display = "none";
+    }
+  });
+
+  var photoForm = document.getElementById("photoForm");
+  var photoSubmit = document.getElementById("photoSubmit");
+  var photoResult = document.getElementById("photoResult");
+
+  photoForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var file = photoInput.files[0];
+    if (!file) return;
+
+    var fd = new FormData();
+    fd.append("item_label", document.getElementById("itemLabel").value);
+    fd.append("photo", file);
+
+    photoSubmit.disabled = true;
+    photoSubmit.textContent = "판정 중…";
+    photoResult.innerHTML = "";
+
+    try {
+      var res = await fetch("/api/analyze/photo", { method: "POST", body: fd });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "요청 실패");
+
+      var stamp = document.createElement("div");
+      var cls = data.verdict === "적합" ? "ok" : "fail";
+      stamp.className = "stamp " + cls;
+      stamp.innerHTML = '<span class="st-top">AI 판정</span><span class="st-main">' + data.verdict + "</span>";
+      photoResult.appendChild(stamp);
+
+      var checks = [
+        { title: "현황판(촬영일자·수량 명기)", status: data.status_board_present ? "ok" : "fail",
+          detail: data.status_board_present ? "현황판이 확인됩니다." : "현황판이 보이지 않습니다 — 사진대지 기준 위반." },
+        { title: "수량 파악 가능 여부", status: data.quantity_countable ? "ok" : "warn",
+          detail: data.quantity_countable ? "사진만으로 수량 확인이 가능합니다." : "사진만으로 정확한 수량 파악이 어렵습니다." },
+        { title: "근접촬영 여부", status: data.close_up_violation ? "fail" : "ok",
+          detail: data.close_up_violation ? "품목 전체가 한 프레임에 담기지 않았습니다." : "적용 품목이 한 프레임에 담겨 있습니다." }
+      ];
+      if (data.box_opened_if_boxed !== null && data.box_opened_if_boxed !== undefined) {
+        checks.push({ title: "박스 개봉 후 내용물 확인", status: data.box_opened_if_boxed ? "ok" : "fail",
+          detail: data.box_opened_if_boxed ? "개봉하여 내용물이 보입니다." : "박스가 개봉되지 않아 내용물 확인이 어렵습니다." });
+      }
+      photoResult.appendChild(renderChecks(checks));
+
+      if (data.violation_reasons && data.violation_reasons.length) {
+        var reasons = document.createElement("div");
+        reasons.className = "error-box";
+        reasons.style.marginTop = "10px";
+        reasons.textContent = "부적합 사유: " + data.violation_reasons.join(" / ");
+        photoResult.appendChild(reasons);
+      }
+      if (data.notes) {
+        var notes = document.createElement("p");
+        notes.style.fontSize = "12px";
+        notes.style.color = "var(--ink-faint)";
+        notes.style.marginTop = "10px";
+        notes.textContent = "AI 메모: " + data.notes;
+        photoResult.appendChild(notes);
+      }
+    } catch (err) {
+      var box = document.createElement("div");
+      box.className = "error-box";
+      box.textContent = err.message;
+      photoResult.appendChild(box);
+    } finally {
+      photoSubmit.disabled = false;
+      photoSubmit.textContent = "AI 판정 요청";
+    }
+  });
+</script>
+</body>
+</html>
