@@ -364,13 +364,8 @@
       fillSelect(filterGrade, grades, "전체 보기");
     }
 
-    // 필터는 한 번에 하나만 적용됩니다. 하나를 고르면 나머지는 자동으로 초기화됩니다.
-    function clearOtherFilters(keepEl){
-      [filterName, filterHh, filterLife, filterGrade].forEach(sel => {
-        if (sel !== keepEl) sel.value = "";
-      });
-    }
-
+    // 아파트를 직접 선택하면 그 아파트 하나만 표시하고, 그 외에는
+    // 세대수/내구연수/기계실등급 조건을 모두 동시에(AND) 겹쳐서 적용합니다.
     function applyFilters(){
       const nameVal  = filterName.value;
       const hhVal    = filterHh.value;
@@ -378,11 +373,16 @@
       const gradeVal = filterGrade.value;
 
       let visible;
-      if (nameVal)       visible = markerEntries.filter(e => e.name === nameVal);
-      else if (hhVal)    visible = markerEntries.filter(e => e.hhLabel === hhVal);
-      else if (lifeVal)  visible = markerEntries.filter(e => e.lifeLabel === lifeVal);
-      else if (gradeVal) visible = markerEntries.filter(e => e.grade === gradeVal);
-      else               visible = markerEntries.slice();
+      if (nameVal){
+        visible = markerEntries.filter(e => e.name === nameVal);
+      } else {
+        visible = markerEntries.filter(e => {
+          if (hhVal && e.hhLabel !== hhVal) return false;
+          if (lifeVal && e.lifeLabel !== lifeVal) return false;
+          if (gradeVal && e.grade !== gradeVal) return false;
+          return true;
+        });
+      }
 
       const visibleSet = new Set(visible);
       markerEntries.forEach(e => {
@@ -401,10 +401,12 @@
       }
     }
 
-    filterName.addEventListener('change',  () => { clearOtherFilters(filterName);  applyFilters(); });
-    filterHh.addEventListener('change',    () => { clearOtherFilters(filterHh);    applyFilters(); });
-    filterLife.addEventListener('change',  () => { clearOtherFilters(filterLife);  applyFilters(); });
-    filterGrade.addEventListener('change', () => { clearOtherFilters(filterGrade); applyFilters(); });
+    // 세대수/내구연수/등급 중 하나를 새로 고르면, 이전에 선택해둔 특정 아파트
+    // 지정은 해제합니다(그렇지 않으면 아파트 지정이 우선돼서 아무 변화가 없어 보임).
+    filterName.addEventListener('change', applyFilters);
+    filterHh.addEventListener('change',    () => { filterName.value = ""; applyFilters(); });
+    filterLife.addEventListener('change',  () => { filterName.value = ""; applyFilters(); });
+    filterGrade.addEventListener('change', () => { filterName.value = ""; applyFilters(); });
 
     btnFilterReset.addEventListener('click', () => {
       filterName.value = "";
