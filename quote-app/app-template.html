@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>견적서 비교 프로그램</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; margin: 0; background: #f0f2f5; color: #222; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 22px; margin: 8px 0 4px; }
+  .sub { color: #666; font-size: 13px; margin-bottom: 16px; }
+  #dropzone { border: 2px dashed #4472C4; border-radius: 10px; background: #fff; padding: 36px 20px; text-align: center; cursor: pointer; transition: background .15s; }
+  #dropzone.drag { background: #e8effb; }
+  #dropzone .big { font-size: 17px; font-weight: bold; color: #4472C4; }
+  #dropzone .small { font-size: 12.5px; color: #888; margin-top: 6px; }
+  .toolbar { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; align-items: center; }
+  button { border: 0; border-radius: 6px; padding: 9px 16px; font-size: 14px; cursor: pointer; font-family: inherit; }
+  .btn-primary { background: #217346; color: #fff; font-weight: bold; }
+  .btn-primary:disabled { background: #a8c5b4; cursor: not-allowed; }
+  .btn-plain { background: #e3e6ea; color: #333; }
+  .btn-danger { background: #fce8e6; color: #c5221f; }
+  select { padding: 8px; border-radius: 6px; border: 1px solid #ccc; font-family: inherit; }
+  #status { font-size: 13px; margin: 6px 0; min-height: 18px; }
+  #status.err { color: #c5221f; }
+  #status.ok { color: #217346; }
+  .quote-card { background: #fff; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .quote-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .quote-head input { font-size: 15px; font-weight: bold; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; width: 300px; font-family: inherit; }
+  .quote-head input:hover, .quote-head input:focus { border-color: #bbb; outline: none; }
+  table.items { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  table.items th { background: #D9E1F2; padding: 6px; border: 1px solid #b7c4dd; }
+  table.items td { border: 1px solid #ccc; padding: 5px 7px; min-width: 60px; }
+  table.items td[data-col="품명"] { min-width: 180px; }
+  table.items td.num { text-align: right; }
+  table.items td:focus { outline: 2px solid #4472C4; background: #f3f7ff; }
+  .rowdel { color: #c5221f; cursor: pointer; border: 0; background: none; font-size: 15px; padding: 0 6px; }
+  .addrow { margin-top: 6px; font-size: 13px; }
+  .hint { background: #fff8e1; border: 1px solid #f0dc9a; border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; }
+  footer { color: #999; font-size: 12px; text-align: center; margin: 24px 0 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📋 견적서 비교 프로그램</h1>
+  <div class="sub">견적서 PDF를 올리면 품목·금액을 읽어서 비교 엑셀(Sheet1: 견적내용, Sheet2: 비교+MIN)을 만들어 줍니다. PDF 1개면 페이지별로, 여러 개면 파일별로 견적1·견적2…로 인식합니다.</div>
+
+  <div id="dropzone">
+    <div class="big">여기에 견적서 PDF를 끌어다 놓거나 클릭해서 선택</div>
+    <div class="small">여러 파일 선택 가능 · 스캔 이미지 PDF(글자 선택이 안 되는 PDF)는 읽을 수 없습니다</div>
+    <input type="file" id="fileinput" accept="application/pdf" multiple hidden>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn-primary" id="btn-excel" disabled>⬇ 엑셀 다운로드 (견적비교.xlsx)</button>
+    <button class="btn-plain" id="btn-addquote">+ 빈 견적 추가 (직접 입력)</button>
+    <button class="btn-plain" id="btn-sample">샘플 데이터</button>
+    <button class="btn-danger" id="btn-clear">전체 지우기</button>
+    <label style="margin-left:auto;font-size:13px;">품명 매칭:
+      <select id="threshold">
+        <option value="0.85">엄격 (거의 같아야 묶음)</option>
+        <option value="0.75" selected>보통</option>
+        <option value="0.6">느슨 (비슷하면 묶음)</option>
+      </select>
+    </label>
+  </div>
+  <div id="status"></div>
+
+  <div class="hint" id="edit-hint" style="display:none">
+    ✏️ 표의 칸을 클릭하면 직접 수정할 수 있습니다. 잘못 읽힌 품명이나 금액은 여기서 고친 뒤 엑셀을 내려받으세요.
+  </div>
+
+  <div id="quotes"></div>
+
+  <footer>모든 처리는 이 컴퓨터 안에서만 이루어지며 파일이 외부로 전송되지 않습니다.</footer>
+</div>
+
+<script>/*__PDFJS__*/</script>
+<script type="text/plain" id="pdf-worker-src">/*__PDFWORKER__*/</script>
+<script>/*__EXCELJS__*/</script>
+
+<script>
+"use strict";
+const workerBlob = new Blob([document.getElementById("pdf-worker-src").textContent], { type: "text/javascript" });
+pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(workerBlob);
+
+const NAME_KEYS = ["품명","품목","제품명","상품명","내역","공사명","항목"];
+const SPEC_KEYS = ["규격","사양","스펙","모델"];
+const QTY_KEYS = ["수량","물량"];
+const UNIT_KEYS = ["단가"];
+const AMOUNT_KEYS = ["금액","공급가액","합계금액","공급가"];
+const SKIP_KEYS = ["합계","소계","총계","부가세","총액","이하여백","TOTAL"];
+const COLS = ["품명","규격","수량","단가","금액"];
+
+const $ = (id) => document.getElementById(id);
+const quotesEl = $("quotes");
+
+function setStatus(msg, cls) { const s = $("status"); s.textContent = msg || ""; s.className = cls || ""; }
+function parseNumber(text) {
+  if (text == null) return null;
+  const s = String(text).replace(/[^\d.\-]/g, "");
+  if (s === "" || s === "-" || s === ".") return null;
+  const v = parseFloat(s);
+  return isNaN(v) ? null : v;
+}
+function fmt(n) { return n == null ? "" : Number(n).toLocaleString("ko-KR"); }
+function normName(s) { return s.replace(/[\s\-_/()]+/g, "").toLowerCase(); }
+function bigrams(s) { const r = []; for (let i = 0; i < s.length - 1; i++) r.push(s.slice(i, i + 2)); return r; }
+function similarity(a, b) {
+  if (a === b) return 1;
+  const A = bigrams(a), B = bigrams(b);
+  if (!A.length || !B.length) return 0;
+  const m = new Map();
+  A.forEach(g => m.set(g, (m.get(g) || 0) + 1));
+  let inter = 0;
+  B.forEach(g => { const c = m.get(g); if (c) { inter++; m.set(g, c - 1); } });
+  return (2 * inter) / (A.length + B.length);
+}
+function hasKey(text, keys) { const t = text.replace(/\s/g, ""); return keys.some(k => t.includes(k)); }
+
+// ---------- PDF에서 품목 추출 ----------
+async function extractQuotesFromPdf(buf, fileName, singleFile) {
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const quotes = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const tc = await page.getTextContent();
+    const items = tc.items
+      .filter(it => it.str.trim() !== "")
+      .map(it => ({ str: it.str.trim(), x: it.transform[4], y: it.transform[5], w: it.width || 0 }));
+    const rows = extractItemsFromTextItems(items);
+    if (rows.length) {
+      const label = singleFile ? `Page${p}` : fileName.replace(/\.pdf$/i, "") + (pdf.numPages > 1 ? ` p${p}` : "");
+      quotes.push({ label, items: rows });
+    }
+  }
+  return quotes;
+}
+
+function extractItemsFromTextItems(items) {
+  // y좌표로 줄 묶기
+  const lines = [];
+  items.sort((a, b) => b.y - a.y || a.x - b.x);
+  for (const it of items) {
+    const line = lines.find(L => Math.abs(L.y - it.y) < 4);
+    if (line) line.items.push(it); else lines.push({ y: it.y, items: [it] });
+  }
+  lines.forEach(L => L.items.sort((a, b) => a.x - b.x));
+
+  // 헤더 줄 찾기 (품명류 + 금액류 키워드가 함께 있는 줄)
+  let headerIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const joined = lines[i].items.map(it => it.str).join("");
+    if (hasKey(joined, NAME_KEYS) && hasKey(joined, AMOUNT_KEYS)) { headerIdx = i; break; }
+  }
+  if (headerIdx < 0) return [];
+
+  // 헤더 항목 → 열 정의 (역할 + x중심)
+  const headerCols = lines[headerIdx].items.map(it => {
+    let role = "기타";
+    if (hasKey(it.str, NAME_KEYS)) role = "품명";
+    else if (hasKey(it.str, SPEC_KEYS)) role = "규격";
+    else if (hasKey(it.str, QTY_KEYS)) role = "수량";
+    else if (hasKey(it.str, UNIT_KEYS)) role = "단가";
+    else if (hasKey(it.str, AMOUNT_KEYS)) role = "금액";
+    return { role, cx: it.x + it.w / 2 };
+  });
+  if (!headerCols.some(c => c.role === "품명") || !headerCols.some(c => c.role === "금액")) return [];
+
+  const rows = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const cells = {};
+    for (const it of lines[i].items) {
+      const cx = it.x + it.w / 2;
+      let best = null, bestDist = Infinity;
+      for (const col of headerCols) {
+        const d = Math.abs(cx - col.cx);
+        if (d < bestDist) { bestDist = d; best = col; }
+      }
+      if (!best) continue;
+      cells[best.role] = cells[best.role] ? cells[best.role] + " " + it.str : it.str;
+    }
+    const name = (cells["품명"] || "").trim();
+    if (!name) continue;
+    if (hasKey(name, SKIP_KEYS)) continue;
+    const amount = parseNumber(cells["금액"]);
+    const unit = parseNumber(cells["단가"]);
+    if (amount == null && unit == null) continue; // 표 밖의 잡텍스트 제거
+    rows.push({ "품명": name, "규격": (cells["규격"] || "").trim(),
+                "수량": parseNumber(cells["수량"]), "단가": unit, "금액": amount });
+  }
+  return rows;
+}
+
+// ---------- 화면 표(편집 가능) ----------
+let quoteSeq = 0;
+function addQuoteCard(label, items) {
+  quoteSeq++;
+  const card = document.createElement("div");
+  card.className = "quote-card";
+  const no = quotesEl.children.length + 1;
+  card.innerHTML = `
+    <div class="quote-head">
+      <input type="text" value="견적${no} (${label})" title="견적 이름 (수정 가능)">
+      <button class="btn-danger" style="margin-left:auto" onclick="this.closest('.quote-card').remove(); refreshUI();">견적 삭제</button>
+    </div>
+    <table class="items">
+      <thead><tr>${COLS.map(c => `<th>${c}</th>`).join("")}<th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <button class="btn-plain addrow">+ 행 추가</button>`;
+  const tbody = card.querySelector("tbody");
+  const addRow = (item) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = COLS.map(c => {
+      const num = (c === "수량" || c === "단가" || c === "금액");
+      const v = item ? item[c] : "";
+      return `<td contenteditable="true" data-col="${c}" class="${num ? "num" : ""}">${num ? fmt(v) : (v || "")}</td>`;
+    }).join("") + `<td style="border:0"><button class="rowdel" title="행 삭제">✕</button></td>`;
+    tr.querySelector(".rowdel").onclick = () => tr.remove();
+    tbody.appendChild(tr);
+  };
+  (items && items.length ? items : [null, null, null]).forEach(addRow);
+  card.querySelector(".addrow").onclick = () => addRow(null);
+  quotesEl.appendChild(card);
+  refreshUI();
+}
+
+function readQuotesFromDOM() {
+  const quotes = [];
+  for (const card of quotesEl.querySelectorAll(".quote-card")) {
+    const label = card.querySelector(".quote-head input").value.trim() || `견적${quotes.length + 1}`;
+    const items = [];
+    for (const tr of card.querySelectorAll("tbody tr")) {
+      const item = {};
+      tr.querySelectorAll("td[data-col]").forEach(td => {
+        const c = td.dataset.col;
+        const raw = td.textContent.trim();
+        item[c] = (c === "수량" || c === "단가" || c === "금액") ? parseNumber(raw) : raw;
+      });
+      if (item["품명"]) items.push(item);
+    }
+    if (items.length) quotes.push({ label, items });
+  }
+  return quotes;
+}
+
+function refreshUI() {
+  const n = quotesEl.children.length;
+  $("btn-excel").disabled = n === 0;
+  $("edit-hint").style.display = n ? "" : "none";
+}
+
+// ---------- 품명 매칭 ----------
+function matchItems(quotes, threshold) {
+  const rows = []; // {name, key, byQuote:{}}
+  quotes.forEach((q, qi) => {
+    for (const item of q.items) {
+      const key = normName(item["품명"]);
+      let best = null, bestRatio = 0;
+      for (const row of rows) {
+        if (row.byQuote[qi]) continue;
+        const r = key === row.key ? 1 : similarity(key, row.key);
+        if (r > bestRatio) { bestRatio = r; best = row; }
+      }
+      if (best && bestRatio >= threshold) best.byQuote[qi] = item;
+      else rows.push({ name: item["품명"], key, byQuote: { [qi]: item } });
+    }
+  });
+  return rows;
+}
+
+// ---------- 엑셀 생성 ----------
+const C_TITLE = "FF4472C4", C_HEADER = "FFD9E1F2", C_MIN = "FFC6EFCE";
+function boxStyle(cell, { bold, fill, center, num, white } = {}) {
+  const thin = { style: "thin", color: { argb: "FF999999" } };
+  cell.border = { top: thin, left: thin, bottom: thin, right: thin };
+  if (bold || white) cell.font = { bold: !!bold, color: { argb: white ? "FFFFFFFF" : "FF000000" } };
+  if (fill) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
+  if (center) cell.alignment = { horizontal: "center", vertical: "middle" };
+  if (num) cell.numFmt = "#,##0";
+}
+function colLetter(n) { let s = ""; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
+
+async function downloadExcel() {
+  const quotes = readQuotesFromDOM();
+  if (!quotes.length) return;
+  const threshold = parseFloat($("threshold").value);
+  const wb = new ExcelJS.Workbook();
+
+  // Sheet1: 견적내용 (블록 나란히)
+  const ws1 = wb.addWorksheet("견적내용");
+  const W = COLS.length;
+  quotes.forEach((q, qi) => {
+    const c0 = 1 + qi * (W + 1);
+    ws1.mergeCells(1, c0, 1, c0 + W - 1);
+    const t = ws1.getCell(1, c0);
+    t.value = q.label;
+    boxStyle(t, { bold: true, fill: C_TITLE, center: true, white: true });
+    COLS.forEach((h, j) => boxStyle(Object.assign(ws1.getCell(2, c0 + j), { value: h }), { bold: true, fill: C_HEADER, center: true }));
+    q.items.forEach((item, i) => {
+      COLS.forEach((h, j) => {
+        const cell = ws1.getCell(3 + i, c0 + j);
+        cell.value = item[h] == null || item[h] === "" ? null : item[h];
+        boxStyle(cell, { num: h === "수량" || h === "단가" || h === "금액" });
+      });
+    });
+    const r = 3 + q.items.length;
+    boxStyle(Object.assign(ws1.getCell(r, c0), { value: "합계" }), { bold: true, fill: C_HEADER, center: true });
+    for (let j = 1; j < W - 1; j++) boxStyle(ws1.getCell(r, c0 + j), { fill: C_HEADER });
+    const amtCol = colLetter(c0 + W - 1);
+    const sumCell = ws1.getCell(r, c0 + W - 1);
+    sumCell.value = { formula: `SUM(${amtCol}3:${amtCol}${r - 1})` };
+    boxStyle(sumCell, { bold: true, fill: C_HEADER, num: true });
+    [22, 12, 7, 11, 13].forEach((w, j) => ws1.getColumn(c0 + j).width = w);
+    ws1.getColumn(c0 + W).width = 2;
+  });
+
+  // Sheet2: 비교
+  const ws2 = wb.addWorksheet("비교", { views: [{ state: "frozen", xSplit: 1, ySplit: 1 }] });
+  const n = quotes.length;
+  const matched = matchItems(quotes, threshold);
+  ["품명", ...quotes.map(q => q.label), "비교 MIN(최저가)", "최저 견적"].forEach((h, j) => {
+    boxStyle(Object.assign(ws2.getCell(1, j + 1), { value: h }), { bold: true, fill: C_HEADER, center: true });
+  });
+  matched.forEach((row, i) => {
+    const r = 2 + i;
+    boxStyle(Object.assign(ws2.getCell(r, 1), { value: row.name }), {});
+    for (let qi = 0; qi < n; qi++) {
+      const item = row.byQuote[qi];
+      const cell = ws2.getCell(r, 2 + qi);
+      cell.value = item && item["금액"] != null ? item["금액"] : null;
+      boxStyle(cell, { num: true });
+    }
+    const first = colLetter(2), last = colLetter(1 + n), minCol = colLetter(2 + n);
+    const minCell = ws2.getCell(r, 2 + n);
+    minCell.value = { formula: `MIN(${first}${r}:${last}${r})` };
+    boxStyle(minCell, { bold: true, fill: C_MIN, num: true });
+    const vCell = ws2.getCell(r, 3 + n);
+    vCell.value = { formula: `IF(COUNT(${first}${r}:${last}${r})=0,"","견적"&MATCH(${minCol}${r},${first}${r}:${last}${r},0))` };
+    boxStyle(vCell, { center: true });
+  });
+  const tr = 2 + matched.length;
+  boxStyle(Object.assign(ws2.getCell(tr, 1), { value: "합계" }), { bold: true, fill: C_HEADER, center: true });
+  for (let j = 2; j <= 2 + n; j++) {
+    const col = colLetter(j);
+    const cell = ws2.getCell(tr, j);
+    cell.value = { formula: `SUM(${col}2:${col}${tr - 1})` };
+    boxStyle(cell, { bold: true, fill: C_HEADER, num: true });
+  }
+  boxStyle(ws2.getCell(tr, 3 + n), { fill: C_HEADER });
+  ws2.getColumn(1).width = 24;
+  for (let j = 2; j <= 2 + n; j++) ws2.getColumn(j).width = 15;
+  ws2.getColumn(3 + n).width = 11;
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "견적비교.xlsx";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  setStatus("견적비교.xlsx 다운로드 완료! (Sheet1: 견적내용 / Sheet2: 비교)", "ok");
+}
+
+// ---------- 파일 처리 ----------
+async function handleFiles(fileList) {
+  const files = [...fileList].filter(f => /\.pdf$/i.test(f.name));
+  if (!files.length) { setStatus("PDF 파일이 아닙니다.", "err"); return; }
+  setStatus("PDF 읽는 중…");
+  let added = 0;
+  for (const f of files) {
+    try {
+      const buf = await f.arrayBuffer();
+      const found = await extractQuotesFromPdf(buf, f.name, files.length === 1);
+      for (const q of found) { addQuoteCard(q.label, q.items); added++; }
+      if (!found.length) setStatus(`'${f.name}'에서 견적 표를 찾지 못했습니다. 스캔 이미지 PDF이거나 표에 품명/금액 헤더가 없는 경우입니다. '+ 빈 견적 추가'로 직접 입력할 수 있습니다.`, "err");
+    } catch (e) {
+      console.error(e);
+      setStatus(`'${f.name}' 읽기 실패: ${e.message}`, "err");
+    }
+  }
+  if (added) setStatus(`견적 ${added}건을 읽었습니다. 내용을 확인·수정한 뒤 [엑셀 다운로드]를 누르세요.`, "ok");
+}
+
+const dz = $("dropzone");
+dz.onclick = () => $("fileinput").click();
+$("fileinput").onchange = (e) => { handleFiles(e.target.files); e.target.value = ""; };
+dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("drag"); };
+dz.ondragleave = () => dz.classList.remove("drag");
+dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove("drag"); handleFiles(e.dataTransfer.files); };
+
+$("btn-excel").onclick = downloadExcel;
+$("btn-addquote").onclick = () => addQuoteCard("직접입력", null);
+$("btn-clear").onclick = () => { quotesEl.innerHTML = ""; refreshUI(); setStatus(""); };
+$("btn-sample").onclick = () => {
+  addQuoteCard("Page1", [
+    { "품명": "LED 조명 50W", "규격": "매입형", "수량": 20, "단가": 35000, "금액": 700000 },
+    { "품명": "전선 HIV 2.5sq", "규격": "300m", "수량": 3, "단가": 45000, "금액": 135000 },
+    { "품명": "분전반 교체", "규격": "20회로", "수량": 1, "단가": 850000, "금액": 850000 },
+  ]);
+  addQuoteCard("Page2", [
+    { "품명": "LED조명 50W", "규격": "매입형", "수량": 20, "단가": 32000, "금액": 640000 },
+    { "품명": "전선 HIV 2.5SQ", "규격": "300m", "수량": 3, "단가": 48000, "금액": 144000 },
+    { "품명": "스위치 교체", "규격": "3로", "수량": 5, "단가": 12000, "금액": 60000 },
+  ]);
+  setStatus("샘플 견적 2건을 넣었습니다. [엑셀 다운로드]를 눌러 결과를 확인해 보세요.", "ok");
+};
+</script>
+</body>
+</html>
