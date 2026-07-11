@@ -43,12 +43,12 @@
 <body>
 <div class="wrap">
   <h1>📋 견적서 비교 프로그램</h1>
-  <div class="sub">견적서 PDF를 올리면 품목·금액을 읽어서 비교 엑셀(Sheet1: 견적내용, Sheet2: 비교+MIN)을 만들어 줍니다. PDF 1개면 페이지별로, 여러 개면 파일별로 견적1·견적2…로 인식합니다.</div>
+  <div class="sub">견적서 PDF나 사진을 올리면 품목·금액을 읽어서 비교 엑셀(Sheet1: 견적내용, Sheet2: 비교+MIN)을 만들어 줍니다. PDF 1개면 페이지별로, 여러 개면 파일별로 견적1·견적2…로 인식합니다.</div>
 
   <div id="dropzone">
-    <div class="big">여기에 견적서 PDF를 끌어다 놓거나 클릭해서 선택</div>
-    <div class="small">여러 파일 선택 가능 · 스캔 이미지 PDF(글자 선택이 안 되는 PDF)는 읽을 수 없습니다</div>
-    <input type="file" id="fileinput" accept="application/pdf" multiple hidden>
+    <div class="big">여기에 견적서 PDF나 사진(JPG/PNG)을 끌어다 놓거나 클릭해서 선택</div>
+    <div class="small">여러 파일 선택 가능 · 스캔본·사진은 자동으로 문자인식(OCR) 처리됩니다 (처음 한 번은 준비에 10~20초)</div>
+    <input type="file" id="fileinput" accept="application/pdf,image/*" multiple hidden>
   </div>
 
   <div class="toolbar">
@@ -68,6 +68,7 @@
 
   <div class="hint" id="edit-hint" style="display:none">
     ✏️ 표의 칸을 클릭하면 직접 수정할 수 있습니다. 잘못 읽힌 품명이나 금액은 여기서 고친 뒤 엑셀을 내려받으세요.
+    스캔본·사진은 문자인식 특성상 오차가 있을 수 있으니 금액을 한 번 확인하세요.
   </div>
 
   <div id="quotes"></div>
@@ -78,6 +79,12 @@
 <script>/*__PDFJS__*/</script>
 <script type="text/plain" id="pdf-worker-src">/*__PDFWORKER__*/</script>
 <script>/*__EXCELJS__*/</script>
+<script>/*__TESSERACT__*/</script>
+<script type="text/plain" id="tess-worker-src">/*__TESSWORKER__*/</script>
+<script type="text/plain" id="tess-core-simd">/*__TESSCORESIMD__*/</script>
+<script type="text/plain" id="tess-core">/*__TESSCORE__*/</script>
+<script type="text/plain" id="kor-data">__KORDATA__</script>
+<script type="text/plain" id="eng-data">__ENGDATA__</script>
 
 <script>
 "use strict";
@@ -98,7 +105,9 @@ const quotesEl = $("quotes");
 function setStatus(msg, cls) { const s = $("status"); s.textContent = msg || ""; s.className = cls || ""; }
 function parseNumber(text) {
   if (text == null) return null;
-  const s = String(text).replace(/[^\d.\-]/g, "");
+  let s = String(text).replace(/[Oo]/g, "0").replace(/[lI|]/g, "1"); // OCR 오인식 보정
+  s = s.replace(/[^\d.\-]/g, "");
+  s = s.replace(/\.(?=\d{3}(?:\D|$))/g, ""); // 천단위 구분 점 제거 (700.000 → 700000)
   if (s === "" || s === "-" || s === ".") return null;
   const v = parseFloat(s);
   return isNaN(v) ? null : v;
@@ -127,10 +136,19 @@ async function extractQuotesFromPdf(buf, fileName, singleFile) {
     const tc = await page.getTextContent();
     const items = tc.items
       .filter(it => it.str.trim() !== "")
-      .map(it => ({ str: it.str.trim(), x: it.transform[4], y: it.transform[5], w: it.width || 0 }));
-    const rows = extractItemsFromTextItems(items);
+      .map(it => ({ str: it.str.trim(), x: it.transform[4], y: it.transform[5],
+                    w: it.width || 0, h: Math.abs(it.transform[0]) || 10 }));
+    let rows = extractItemsFromTextItems(items);
+    let ocr = false;
+    if (!rows.length && items.length < 8) {
+      // 글자가 거의 없는 페이지 = 스캔본으로 보고 문자인식 시도
+      const canvas = await renderPageToCanvas(page);
+      rows = await ocrExtractRows(canvas, `Page${p}`);
+      ocr = true;
+    }
     if (rows.length) {
-      const label = singleFile ? `Page${p}` : fileName.replace(/\.pdf$/i, "") + (pdf.numPages > 1 ? ` p${p}` : "");
+      let label = singleFile ? `Page${p}` : fileName.replace(/\.pdf$/i, "") + (pdf.numPages > 1 ? ` p${p}` : "");
+      if (ocr) label += " 스캔";
       quotes.push({ label, items: rows });
     }
   }
@@ -138,14 +156,32 @@ async function extractQuotesFromPdf(buf, fileName, singleFile) {
 }
 
 function extractItemsFromTextItems(items) {
+  if (!items.length) return [];
+  const hs = items.map(it => it.h || 10).sort((a, b) => a - b);
+  const h = hs[Math.floor(hs.length / 2)] || 10; // 글자 높이 중앙값
+  const tol = Math.max(3, h * 0.6);
+
   // y좌표로 줄 묶기
   const lines = [];
   items.sort((a, b) => b.y - a.y || a.x - b.x);
   for (const it of items) {
-    const line = lines.find(L => Math.abs(L.y - it.y) < 4);
+    const line = lines.find(L => Math.abs(L.y - it.y) < tol);
     if (line) line.items.push(it); else lines.push({ y: it.y, items: [it] });
   }
-  lines.forEach(L => L.items.sort((a, b) => a.x - b.x));
+  // 줄 안에서 가까운 조각은 한 칸으로 합치기 (OCR이 단어를 쪼개는 경우 대비)
+  for (const L of lines) {
+    L.items.sort((a, b) => a.x - b.x);
+    const merged = [];
+    for (const it of L.items) {
+      const prev = merged[merged.length - 1];
+      const gap = prev ? it.x - (prev.x + prev.w) : Infinity;
+      if (prev && gap < h * 0.6) {
+        prev.str += (gap > h * 0.15 ? " " : "") + it.str;
+        prev.w = it.x + it.w - prev.x;
+      } else merged.push({ ...it });
+    }
+    L.items = merged;
+  }
 
   // 헤더 줄 찾기 (품명류 + 금액류 키워드가 함께 있는 줄)
   let headerIdx = -1;
@@ -190,6 +226,105 @@ function extractItemsFromTextItems(items) {
                 "수량": parseNumber(cells["수량"]), "단가": unit, "금액": amount });
   }
   return rows;
+}
+
+// ---------- 문자인식(OCR) : 스캔 PDF·사진 ----------
+let tessWorkerPromise = null;
+let ocrLabel = "";
+function buildTessWorkerUrl() {
+  const g = id => document.getElementById(id).textContent;
+  const parts = [
+    'self.__LANG_B64={kor:"', g("kor-data").replace(/\s+/g, ""),
+    '",eng:"', g("eng-data").replace(/\s+/g, ""), '"};\n',
+    "self.__CORES={};\n",
+    "self.__CORES.simd=function(){\n", g("tess-core-simd"),
+    "\n;self.TesseractCore=TesseractCore;};\n",
+    "self.__CORES.plain=function(){\n", g("tess-core"),
+    "\n;self.TesseractCore=TesseractCore;};\n",
+    "(function(){var oi=self.importScripts?self.importScripts.bind(self):null;\n",
+    'self.importScripts=function(){var u=Array.prototype.slice.call(arguments).map(String).join(" ");\n',
+    'if(u.indexOf("tesseract-core")>=0){self.__CORES[u.indexOf("simd")>=0?"simd":"plain"]();return;}\n',
+    "return oi.apply(null,arguments);};\n",
+    "var of=self.fetch.bind(self);\n",
+    "self.fetch=function(u,o){var s=String(u&&u.url||u);\n",
+    'if(s.indexOf(".traineddata")>=0){var k=s.indexOf("eng.traineddata")>=0?"eng":"kor";\n',
+    "var b=atob(self.__LANG_B64[k]),a=new Uint8Array(b.length);\n",
+    "for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);\n",
+    'return Promise.resolve(new Response(a,{status:200,headers:{"Content-Type":"application/octet-stream"}}));}\n',
+    "return of(u,o);};})();\n",
+    g("tess-worker-src"),
+  ];
+  return URL.createObjectURL(new Blob(parts, { type: "text/javascript" }));
+}
+function getTessWorker() {
+  if (!tessWorkerPromise) {
+    setStatus("문자인식(OCR) 엔진 준비 중… 처음 한 번은 10~20초 걸릴 수 있습니다.");
+    tessWorkerPromise = (async () => {
+      const worker = await Tesseract.createWorker("kor+eng", 1, {
+        workerPath: buildTessWorkerUrl(),
+        workerBlobURL: false,
+        corePath: "embedded-cores",
+        langPath: "embedded-lang",
+        cacheMethod: "none",
+        logger: m => {
+          if (m.status === "recognizing text")
+            setStatus(`문자인식(OCR) 진행 중… ${ocrLabel} ${Math.round(m.progress * 100)}%`);
+        },
+      });
+      await worker.setParameters({ preserve_interword_spaces: "1" });
+      return worker;
+    })();
+    tessWorkerPromise.catch(() => { tessWorkerPromise = null; });
+  }
+  return tessWorkerPromise;
+}
+async function ocrWords(canvas, label, psm) {
+  const worker = await getTessWorker();
+  ocrLabel = label;
+  await worker.setParameters({ tessedit_pageseg_mode: psm });
+  const { data } = await worker.recognize(canvas);
+  const H = canvas.height;
+  const out = [];
+  const collect = ws => (ws || []).forEach(w => {
+    const t = (w.text || "").trim();
+    if (!t) return;
+    const bb = w.bbox;
+    out.push({ str: t, x: bb.x0, y: H - (bb.y0 + bb.y1) / 2, w: bb.x1 - bb.x0, h: bb.y1 - bb.y0 });
+  });
+  if (data.words && data.words.length) collect(data.words);
+  else (data.blocks || []).forEach(b => (b.paragraphs || []).forEach(p => (p.lines || []).forEach(l => collect(l.words))));
+  return out;
+}
+// 표 인식이 잘 되는 분할 모드부터 차례로 시도
+async function ocrExtractRows(canvas, label) {
+  for (const psm of ["11", "4", "3"]) {
+    const words = await ocrWords(canvas, label, psm);
+    const rows = extractItemsFromTextItems(words);
+    if (rows.length) return rows;
+  }
+  return [];
+}
+async function renderPageToCanvas(page, targetW = 2000) {
+  const vp1 = page.getViewport({ scale: 1 });
+  const scale = Math.min(3, targetW / vp1.width);
+  const vp = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(vp.width);
+  canvas.height = Math.round(vp.height);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  return canvas;
+}
+async function imageFileToCanvas(file, maxW = 2500) {
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const scale = Math.min(1, maxW / bmp.width) * (bmp.width < 1200 ? 1200 / bmp.width : 1);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bmp.width * scale);
+  canvas.height = Math.round(bmp.height * scale);
+  canvas.getContext("2d").drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  return canvas;
 }
 
 // ---------- 화면 표(편집 가능) ----------
@@ -365,16 +500,26 @@ async function downloadExcel() {
 
 // ---------- 파일 처리 ----------
 async function handleFiles(fileList) {
-  const files = [...fileList].filter(f => /\.pdf$/i.test(f.name));
-  if (!files.length) { setStatus("PDF 파일이 아닙니다.", "err"); return; }
-  setStatus("PDF 읽는 중…");
+  const isPdf = f => /\.pdf$/i.test(f.name) || f.type === "application/pdf";
+  const isImg = f => /\.(jpe?g|png|bmp|webp|gif|tiff?)$/i.test(f.name) || f.type.startsWith("image/");
+  const files = [...fileList].filter(f => isPdf(f) || isImg(f));
+  if (!files.length) { setStatus("PDF나 이미지 파일이 아닙니다.", "err"); return; }
+  const pdfCount = files.filter(isPdf).length;
+  setStatus("파일 읽는 중…");
   let added = 0;
   for (const f of files) {
     try {
-      const buf = await f.arrayBuffer();
-      const found = await extractQuotesFromPdf(buf, f.name, files.length === 1);
-      for (const q of found) { addQuoteCard(q.label, q.items); added++; }
-      if (!found.length) setStatus(`'${f.name}'에서 견적 표를 찾지 못했습니다. 스캔 이미지 PDF이거나 표에 품명/금액 헤더가 없는 경우입니다. '+ 빈 견적 추가'로 직접 입력할 수 있습니다.`, "err");
+      if (isPdf(f)) {
+        const buf = await f.arrayBuffer();
+        const found = await extractQuotesFromPdf(buf, f.name, pdfCount === 1 && files.length === 1);
+        for (const q of found) { addQuoteCard(q.label, q.items); added++; }
+        if (!found.length) setStatus(`'${f.name}'에서 견적 표를 찾지 못했습니다. 표에 품명/금액 헤더가 없거나 화질이 낮은 경우입니다. '+ 빈 견적 추가'로 직접 입력할 수 있습니다.`, "err");
+      } else {
+        const canvas = await imageFileToCanvas(f);
+        const rows = await ocrExtractRows(canvas, f.name);
+        if (rows.length) { addQuoteCard(f.name.replace(/\.[^.]+$/, "") + " 사진", rows); added++; }
+        else setStatus(`'${f.name}' 사진에서 견적 표를 읽지 못했습니다. 그림자 없이 정면에서 찍은 선명한 사진일수록 잘 읽힙니다. '+ 빈 견적 추가'로 직접 입력할 수도 있습니다.`, "err");
+      }
     } catch (e) {
       console.error(e);
       setStatus(`'${f.name}' 읽기 실패: ${e.message}`, "err");
