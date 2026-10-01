@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3a5f">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon.svg">
+<title>밸브 조작 관리</title>
+<style>
+:root{
+  --bg:#f3f5f8; --card:#fff; --ink:#1b2430; --muted:#66707d; --line:#dde2e8;
+  --brand:#1f3a5f; --open:#0b7a3e; --close:#b42318; --wait:#b54708; --ok:#067647; --bad:#c01048;
+  --none:#667085; --hl:#fff6e5;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif;font-size:15px}
+button,input,select,textarea{font:inherit}
+.hidden{display:none!important}
+header{position:sticky;top:0;z-index:5;background:var(--brand);color:#fff;padding:10px 14px;
+  display:flex;align-items:center;gap:10px}
+header h1{font-size:17px;margin:0;flex:1}
+header .who{font-size:13px;opacity:.85}
+header button{background:rgba(255,255,255,.15);color:#fff;border:0;border-radius:8px;padding:6px 10px}
+nav.tabs{display:flex;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:48px;z-index:4}
+nav.tabs button{flex:1;border:0;background:none;padding:11px 0;color:var(--muted);border-bottom:3px solid transparent}
+nav.tabs button.on{color:var(--brand);border-bottom-color:var(--brand);font-weight:700}
+main{max-width:820px;margin:0 auto;padding:12px 14px 80px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
+.center{max-width:380px;margin:40px auto}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+input,select,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.btn{display:inline-block;border:0;border-radius:10px;padding:11px 16px;background:var(--brand);color:#fff;font-weight:600;cursor:pointer}
+.btn.sec{background:#e8ecf2;color:var(--ink)}
+.btn.full{width:100%}
+.btn:disabled{opacity:.45}
+.err{color:var(--bad);font-size:13px;min-height:18px;margin-top:8px}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:8px}
+.chip{flex:none;border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 11px;font-size:13px;cursor:pointer}
+.chip b{margin-left:4px}
+.chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.filters{display:flex;gap:8px;margin-bottom:10px}
+.filters input{flex:2}.filters select{flex:1}
+.progress{height:8px;background:#e4e7ec;border-radius:99px;overflow:hidden;margin:4px 0 10px}
+.progress div{height:100%;background:var(--ok)}
+.area{font-size:13px;color:var(--muted);margin:14px 2px 6px;font-weight:700}
+.valve{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-left:6px solid var(--none);
+  border-radius:10px;padding:10px 12px;margin-bottom:6px;cursor:pointer}
+.valve.s-wait{border-left-color:var(--wait)}
+.valve.s-ok{border-left-color:var(--ok)}
+.valve.s-bad{border-left-color:var(--bad);background:#fff1f3}
+.valve.s-diff{border-left-color:var(--bad)}
+.valve.flash{animation:flash 2s}
+@keyframes flash{0%{background:#fff3c4}100%{background:#fff}}
+.valve .main{flex:1;min-width:0}
+.valve .tag{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.valve .sub{font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.states{display:flex;flex-direction:column;align-items:flex-end;gap:3px;font-size:12px}
+.st{display:inline-block;min-width:54px;text-align:center;border-radius:6px;padding:2px 6px;font-weight:700;font-size:12px;color:#fff;background:var(--none)}
+.st.OPEN{background:var(--open)}.st.CLOSE{background:var(--close)}
+.st.outline{background:#fff;border:1.5px solid currentColor}
+.st.outline.OPEN{color:var(--open)}.st.outline.CLOSE{color:var(--close)}
+.badge{font-size:11px;border-radius:6px;padding:1px 6px;font-weight:700}
+.b-미조작{background:#eef0f3;color:var(--none)}.b-확인대기{background:#fef0c7;color:var(--wait)}
+.b-확인완료{background:#d1fadf;color:var(--ok)}.b-불일치{background:#ffe4e8;color:var(--bad)}
+.legend{font-size:12px;color:var(--muted);margin:2px 0 10px}
+/* 상세 시트 */
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:#fff;width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px 16px 28px}
+@media(min-width:700px){.sheet-bg{align-items:center}.sheet{border-radius:16px}}
+.sheet h2{margin:0 0 4px;font-size:19px}
+.kv{display:grid;grid-template-columns:90px 1fr;gap:4px 10px;font-size:14px;margin:10px 0}
+.kv div:nth-child(odd){color:var(--muted)}
+.bigstate{display:flex;gap:10px;margin:12px 0}
+.bigstate>div{flex:1;text-align:center;border:1px solid var(--line);border-radius:10px;padding:8px}
+.bigstate small{display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
+.bigstate .st{font-size:16px;padding:4px 10px}
+.ops{display:flex;gap:10px;margin:8px 0}
+.ops button{flex:1;padding:16px 0;font-size:17px;border-radius:12px;border:0;color:#fff;font-weight:800;cursor:pointer}
+.ops .o{background:var(--open)}.ops .c{background:var(--close)}
+.ops button.target{outline:4px solid #fdb022;outline-offset:2px}
+.section{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
+.section h3{font-size:14px;margin:0 0 8px;color:var(--muted)}
+.hist{font-size:13px;border-left:3px solid var(--line);padding:4px 0 4px 10px;margin-bottom:6px}
+.hist .t{color:var(--muted);font-size:12px}
+.warn{background:var(--hl);border:1px solid #fedf89;border-radius:10px;padding:10px;font-size:14px;margin:8px 0}
+.check{display:flex;gap:8px;align-items:flex-start;margin:10px 0;font-size:14px}
+.check input{width:22px;height:22px;flex:none}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{border-bottom:1px solid var(--line);padding:7px 4px;text-align:left;white-space:nowrap}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#1b2430;color:#fff;border-radius:10px;
+  padding:10px 14px;z-index:30;font-size:14px;max-width:92vw;box-shadow:0 4px 20px rgba(0,0,0,.25)}
+.offline{background:var(--bad);color:#fff;text-align:center;font-size:13px;padding:4px}
+.row{display:flex;gap:8px}.row>*{flex:1}
+</style>
+</head>
+<body>
+<div id="offline" class="offline hidden">서버와 연결이 끊겼습니다. Wi-Fi 연결을 확인하세요. (자동 재시도 중)</div>
+
+<!-- 로그인 -->
+<div id="vLogin" class="hidden">
+  <div class="box center">
+    <h2 style="margin-top:0">밸브 조작 관리</h2>
+    <label>아이디</label><input id="lgId" autocomplete="username" autocapitalize="off">
+    <label>비밀번호</label><input id="lgPw" type="password" autocomplete="current-password">
+    <div class="err" id="lgErr"></div>
+    <button class="btn full" id="lgBtn">로그인</button>
+  </div>
+</div>
+
+<!-- 비밀번호 변경 -->
+<div id="vPw" class="hidden">
+  <div class="box center">
+    <h2 style="margin-top:0">비밀번호 변경</h2>
+    <p id="pwMsg" style="font-size:14px;color:var(--muted)"></p>
+    <label>현재(임시) 비밀번호</label><input id="pwOld" type="password">
+    <label>새 비밀번호 (6자 이상)</label><input id="pwNew" type="password">
+    <label>새 비밀번호 확인</label><input id="pwNew2" type="password">
+    <div class="err" id="pwErr"></div>
+    <div class="row"><button class="btn sec" id="pwCancel">취소</button><button class="btn" id="pwBtn">변경</button></div>
+  </div>
+</div>
+
+<!-- 메인 -->
+<div id="vApp" class="hidden">
+  <header>
+    <h1>밸브 조작 관리</h1>
+    <span class="who" id="who"></span>
+    <button id="menuBtn">메뉴</button>
+  </header>
+  <nav class="tabs">
+    <button data-tab="list" class="on">밸브 목록</button>
+    <button data-tab="hist">조작 이력</button>
+    <button data-tab="admin" id="tabAdmin" class="hidden">관리자</button>
+  </nav>
+  <main>
+    <section id="tList">
+      <div class="progress"><div id="prog"></div></div>
+      <div class="legend" id="progTxt"></div>
+      <div class="chips" id="chips"></div>
+      <div class="filters">
+        <input id="q" placeholder="밸브명/도면번호 검색" type="search">
+        <select id="areaSel"></select>
+      </div>
+      <div class="legend">왼쪽 띠: 회색=미조작 · 주황=확인대기 · 초록=확인완료 · 빨강=불일치/요구상태와 다름</div>
+      <div id="list"></div>
+    </section>
+    <section id="tHist" class="hidden">
+      <div class="box" style="padding:10px 14px">
+        <a class="btn sec" href="/api/export/history.csv">전체 이력 엑셀(CSV) 받기</a>
+        <a class="btn sec" href="/api/export/status.csv">현재 상태표 받기</a>
+      </div>
+      <div id="histList"></div>
+    </section>
+    <section id="tAdmin" class="hidden">
+      <div class="box">
+        <h3 style="margin-top:0">사용자 등록</h3>
+        <div class="row">
+          <div><label>아이디(영문/숫자)</label><input id="nuLogin" autocapitalize="off"></div>
+          <div><label>이름</label><input id="nuName"></div>
+        </div>
+        <div class="row">
+          <div><label>부서</label><input id="nuDept" placeholder="예: 운영부"></div>
+          <div><label>임시 비밀번호(6자 이상)</label><input id="nuPw"></div>
+        </div>
+        <label>권한</label>
+        <select id="nuRole"><option value="user">일반(조작/확인)</option><option value="admin">관리자</option></select>
+        <div class="err" id="nuErr"></div>
+        <button class="btn" id="nuBtn">등록</button>
+        <p class="legend">등록한 사람은 첫 로그인 때 비밀번호를 직접 바꾸게 됩니다.</p>
+      </div>
+      <div class="box">
+        <h3 style="margin-top:0">사용자 목록</h3>
+        <div style="overflow-x:auto"><table id="userTbl"></table></div>
+      </div>
+      <div class="box">
+        <h3 style="margin-top:0">밸브 목록 불러오기 (새 작업)</h3>
+        <p class="legend">import_excel.py 로 만든 valves.csv 또는 같은 열 제목(순번,구역,밸브명,도면번호,요구상태,요청사항,작업책임자,연락처,개방일시,투입일시)의 CSV(UTF-8).
+          불러오면 현재 목록은 숨겨지고(이력은 보존) 새 목록이 '미조작' 상태로 시작합니다.</p>
+        <input type="file" id="csvFile" accept=".csv,text/csv">
+        <label>메모(작업명)</label><input id="csvMemo" placeholder="예: 2026 축열조 정비">
+        <div class="err" id="csvErr"></div>
+        <button class="btn" id="csvBtn">불러오기</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- 메뉴 -->
+<div id="menu" class="sheet-bg hidden">
+  <div class="sheet">
+    <h2>메뉴</h2>
+    <p class="legend" id="menuInfo"></p>
+    <button class="btn full sec" id="mPw" style="margin-bottom:8px">비밀번호 변경</button>
+    <button class="btn full sec" id="mOut" style="margin-bottom:8px">로그아웃</button>
+    <button class="btn full" id="mClose">닫기</button>
+  </div>
+</div>
+
+<!-- 밸브 상세 -->
+<div id="detail" class="sheet-bg hidden"><div class="sheet" id="detailBody"></div></div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let me = null, valves = [], version = 0, filter = '전체', openId = null, pollTimer = null, firstLoad = true;
+const flashIds = new Set();
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)};
+  let r;
+  try { r = await fetch(path, opt); }
+  catch (e) { $('#offline').classList.remove('hidden'); throw new Error('서버에 연결할 수 없습니다'); }
+  $('#offline').classList.add('hidden');
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401 && path !== '/api/login') { showLogin(); throw new Error(data.error || '로그인 필요'); }
+  if (!r.ok) { const e = new Error(data.error || ('오류 ' + r.status)); e.status = r.status; e.data = data; throw e; }
+  return data;
+}
+function toast(msg, ms=3500) {
+  const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.add('hidden'), ms);
+}
+function show(id) { ['#vLogin','#vPw','#vApp'].forEach(v => $(v).classList.toggle('hidden', v !== id)); }
+
+/* ---------- 로그인 ---------- */
+function showLogin() { me = null; clearInterval(pollTimer); show('#vLogin'); $('#lgPw').value=''; }
+$('#lgBtn').onclick = async () => {
+  $('#lgErr').textContent = '';
+  try {
+    me = await api('/api/login', {login: $('#lgId').value.trim(), password: $('#lgPw').value});
+    try { localStorage.setItem('vs_login', $('#lgId').value.trim()); } catch(e) {}
+    afterLogin();
+  } catch (e) { $('#lgErr').textContent = e.message; }
+};
+$('#lgPw').addEventListener('keydown', e => { if (e.key === 'Enter') $('#lgBtn').click(); });
+function afterLogin() {
+  if (me.must_change_pw) return showPw(true);
+  show('#vApp');
+  $('#who').textContent = me.name + (me.dept ? ' · ' + me.dept : '');
+  $('#tabAdmin').classList.toggle('hidden', me.role !== 'admin');
+  firstLoad = true; load();
+  clearInterval(pollTimer); pollTimer = setInterval(load, 5000);
+}
+
+/* ---------- 비밀번호 ---------- */
+function showPw(forced) {
+  show('#vPw');
+  $('#pwMsg').textContent = forced ? '처음 로그인했거나 관리자가 비밀번호를 초기화했습니다. 본인만 아는 비밀번호로 바꿔주세요.' : '';
+  $('#pwCancel').classList.toggle('hidden', !!forced);
+  ['#pwOld','#pwNew','#pwNew2'].forEach(s => $(s).value=''); $('#pwErr').textContent='';
+}
+$('#pwCancel').onclick = () => show('#vApp');
+$('#pwBtn').onclick = async () => {
+  if ($('#pwNew').value !== $('#pwNew2').value) return $('#pwErr').textContent = '새 비밀번호가 서로 다릅니다';
+  try {
+    await api('/api/password', {old: $('#pwOld').value, new: $('#pwNew').value});
+    me.must_change_pw = 0; toast('비밀번호를 변경했습니다'); afterLogin();
+  } catch (e) { $('#pwErr').textContent = e.message; }
+};
+
+/* ---------- 메뉴/탭 ---------- */
+$('#menuBtn').onclick = () => { $('#menuInfo').textContent = `${me.name} (${me.login}) · ${me.role==='admin'?'관리자':'일반'}`; $('#menu').classList.remove('hidden'); };
+$('#mClose').onclick = () => $('#menu').classList.add('hidden');
+$('#mPw').onclick = () => { $('#menu').classList.add('hidden'); showPw(false); };
+$('#mOut').onclick = async () => { $('#menu').classList.add('hidden'); try { await api('/api/logout', {}); } catch(e){} showLogin(); };
+document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  $('#tList').classList.toggle('hidden', b.dataset.tab !== 'list');
+  $('#tHist').classList.toggle('hidden', b.dataset.tab !== 'hist');
+  $('#tAdmin').classList.toggle('hidden', b.dataset.tab !== 'admin');
+  if (b.dataset.tab === 'hist') loadHist();
+  if (b.dataset.tab === 'admin') loadUsers();
+});
+
+/* ---------- 목록 ---------- */
+function cls(v) {
+  if (v.status === '불일치') return 's-bad';
+  if (v.status !== '미조작' && v.target && v.current !== v.target) return 's-diff';
+  if (v.status === '확인대기') return 's-wait';
+  if (v.status === '확인완료') return 's-ok';
+  return '';
+}
+const FILTERS = {
+  '전체': v => true,
+  '미조작': v => v.status === '미조작',
+  '확인대기': v => v.status === '확인대기',
+  '불일치': v => v.status === '불일치',
+  '요구상태와 다름': v => v.status !== '미조작' && v.target && v.current !== v.target,
+  '확인완료': v => v.status === '확인완료' && v.current === v.target,
+};
+async function load() {
+  try {
+    const d = await api('/api/valves');
+    if (d.version !== version) {
+      if (!firstLoad && d.version > version) notifyNew(version);
+      const old = new Map(valves.map(v => [v.id, v.rev]));
+      d.valves.forEach(v => { if (!firstLoad && old.has(v.id) && old.get(v.id) !== v.rev) flashIds.add(v.id); });
+      valves = d.valves; version = d.version; firstLoad = false;
+      render();
+      if (openId && !$('#detail').classList.contains('hidden') && !$('#detail').dataset.busy) openDetail(openId, true);
+    }
+  } catch (e) { /* 다음 주기에 재시도 */ }
+}
+async function notifyNew(since) {
+  try {
+    const h = await api('/api/history');
+    const news = h.filter(e => e.id > since && e.user_id !== me.id);
+    if (news.length === 1) { const e = news[0]; toast(`${e.user_name}: ${e.tag} ${e.kind}${e.to_state ? ' → ' + e.to_state : ''}`); }
+    else if (news.length > 1) toast(`다른 사람이 ${news.length}건을 변경했습니다`);
+  } catch (e) {}
+}
+function render() {
+  const total = valves.length;
+  const done = valves.filter(FILTERS['확인완료']).length;
+  $('#prog').style.width = total ? (done / total * 100) + '%' : 0;
+  $('#progTxt').textContent = `요구상태대로 조작·확인 완료 ${done} / ${total}`;
+  $('#chips').innerHTML = Object.keys(FILTERS).map(k =>
+    `<button class="chip ${k===filter?'on':''}" data-f="${k}">${k}<b>${valves.filter(FILTERS[k]).length}</b></button>`).join('');
+  $('#chips').querySelectorAll('.chip').forEach(c => c.onclick = () => { filter = c.dataset.f; render(); });
+  const areas = [...new Set(valves.map(v => v.area))];
+  const curArea = $('#areaSel').value;
+  $('#areaSel').innerHTML = '<option value="">전체 구역</option>' + areas.map(a => `<option ${a===curArea?'selected':''}>${esc(a)}</option>`).join('');
+  const q = $('#q').value.trim().toUpperCase();
+  const list = valves.filter(FILTERS[filter]).filter(v => !curArea || v.area === curArea)
+    .filter(v => !q || (v.tag + ' ' + v.pid + ' ' + v.area).toUpperCase().includes(q));
+  let html = '', lastArea = null;
+  for (const v of list) {
+    if (v.area !== lastArea) { html += `<div class="area">${esc(v.area || '구역 없음')}</div>`; lastArea = v.area; }
+    html += `<div class="valve ${cls(v)} ${flashIds.has(v.id)?'flash':''}" data-id="${v.id}">
+      <div class="main"><div class="tag">${esc(v.seq)}. ${esc(v.tag)}</div>
+        <div class="sub"><span class="badge b-${esc(v.status)}">${esc(v.status)}</span>
+          ${v.operated_by ? esc(v.operated_by) + ' ' + esc(v.operated_at.slice(5,16)) : ''}${v.note ? ' · ' + esc(v.note) : ''}</div></div>
+      <div class="states"><span>요구 <span class="st outline ${esc(v.target)}">${esc(v.target||'-')}</span></span>
+        <span>현재 <span class="st ${esc(v.current)}">${esc(v.current)}</span></span></div></div>`;
+  }
+  $('#list').innerHTML = html || '<div class="box legend">해당하는 밸브가 없습니다.</div>';
+  $('#list').querySelectorAll('.valve').forEach(el => el.onclick = () => openDetail(+el.dataset.id));
+  flashIds.clear();
+}
+$('#q').oninput = render; $('#areaSel').onchange = render;
+
+/* ---------- 상세/조작/확인 ---------- */
+async function openDetail(id, refresh) {
+  const v = valves.find(x => x.id === id); if (!v) return;
+  openId = id;
+  const hist = await api('/api/history?valve=' + id).catch(() => []);
+  const diff = v.status !== '미조작' && v.target && v.current !== v.target;
+  const canVerify = (v.status === '확인대기' || v.status === '불일치');
+  const isAdmin = me.role === 'admin';
+  $('#detailBody').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+      <div><h2>${esc(v.tag)}</h2><div class="legend">${esc(v.area)}${v.pid ? ' · ' + esc(v.pid) : ''} · 순번 ${esc(v.seq)}</div></div>
+      <button class="btn sec" id="dClose">닫기</button></div>
+    <div class="bigstate">
+      <div><small>요구상태(작업요청)</small><span class="st outline ${esc(v.target)}">${esc(v.target||'-')}</span></div>
+      <div><small>현재상태</small><span class="st ${esc(v.current)}">${esc(v.current)}</span></div>
+      <div><small>검증</small><span class="badge b-${esc(v.status)}" style="font-size:14px">${esc(v.status)}</span></div>
+    </div>
+    ${diff ? `<div class="warn" style="border-color:#fda29b;background:#fff1f3">⚠ 현재상태가 요구상태(${esc(v.target)})와 다릅니다.</div>` : ''}
+    <div class="kv">
+      <div>요청사항</div><div>${esc(v.note || '-')}</div>
+      <div>작업책임자</div><div>${esc(v.owner || '-')} ${esc(v.phone)}</div>
+      <div>개방~투입</div><div>${esc(v.work_start)} ~ ${esc(v.work_end)}</div>
+      <div>조작</div><div>${v.operated_by ? esc(v.operated_by) + ' · ' + esc(v.operated_at) : '-'}</div>
+      <div>확인</div><div>${v.verified_by ? esc(v.verified_by) + ' · ' + esc(v.verified_at) : '-'}</div>
+    </div>
+    <div class="section"><h3>① 현장 조작 등록 (밸브를 실제로 돌린 뒤 누르세요)</h3>
+      <div class="ops">
+        <button class="o ${v.target==='OPEN'?'target':''}" data-s="OPEN">OPEN 했음</button>
+        <button class="c ${v.target==='CLOSE'?'target':''}" data-s="CLOSE">CLOSE 했음</button>
+      </div>
+      <div class="legend">노란 테두리 = 작업요청 상태</div>
+    </div>
+    ${canVerify ? `<div class="section"><h3>② 확인(검증) — 조작자가 아닌 사람이 현장에서 직접 보고 누르세요</h3>
+      <div class="warn">${esc(v.operated_by)} 님이 <b>${esc(v.current)}</b>(으)로 조작했다고 등록했습니다. 실제 밸브도 ${esc(v.current)} 상태입니까?</div>
+      <input id="vMemo" placeholder="메모 (불일치일 때 필수: 실제 상태/사유)">
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="vOk" style="background:var(--ok)">맞음 (확인완료)</button>
+        <button class="btn" id="vNg" style="background:var(--bad)">다름 (불일치)</button>
+      </div></div>` : ''}
+    ${isAdmin ? `<div class="section"><h3>관리자: 밸브 정보 수정</h3>
+      <div class="row"><div><label>요구상태</label><select id="eTarget">
+        ${['OPEN','CLOSE',''].map(s => `<option value="${s}" ${v.target===s?'selected':''}>${s||'(없음)'}</option>`).join('')}</select></div>
+        <div><label>도면번호</label><input id="ePid" value="${esc(v.pid)}"></div></div>
+      <label>요청사항</label><input id="eNote" value="${esc(v.note)}">
+      <div class="row" style="margin-top:8px"><button class="btn sec" id="eSave">정보 저장</button>
+        <button class="btn sec" id="eReset">상태 초기화(미조작)</button></div></div>` : ''}
+    <div class="section"><h3>이 밸브의 이력</h3>
+      ${hist.map(e => `<div class="hist"><div class="t">${esc(e.ts)} · ${esc(e.user_name)}</div>
+        <b>${esc(e.kind)}</b> ${e.from_state || e.to_state ? esc(e.from_state || '') + ' → ' + esc(e.to_state || '') : ''}
+        ${e.memo ? '<div>' + esc(e.memo) + '</div>' : ''}</div>`).join('') || '<div class="legend">이력 없음</div>'}
+    </div>`;
+  $('#detail').classList.remove('hidden');
+  $('#dClose').onclick = closeDetail;
+  $('#detailBody').querySelectorAll('.ops button').forEach(b => b.onclick = () => confirmOperate(v, b.dataset.s));
+  if (canVerify) { $('#vOk').onclick = () => doVerify(v, true); $('#vNg').onclick = () => doVerify(v, false); }
+  if (isAdmin) {
+    $('#eSave').onclick = () => adminEdit(v, {target: $('#eTarget').value, pid: $('#ePid').value, note: $('#eNote').value});
+    $('#eReset').onclick = () => confirm(`${v.tag} 상태를 '미확인/미조작'으로 초기화할까요? (이력은 남습니다)`) && adminEdit(v, {reset: true});
+  }
+}
+function closeDetail() { $('#detail').classList.add('hidden'); openId = null; delete $('#detail').dataset.busy; }
+$('#detail').onclick = e => { if (e.target.id === 'detail') closeDetail(); };
+
+function confirmOperate(v, state) {
+  $('#detail').dataset.busy = '1';
+  const mismatch = v.target && v.target !== state;
+  $('#detailBody').innerHTML = `
+    <h2>조작 등록 확인</h2>
+    <div class="bigstate"><div><small>밸브</small><b style="font-size:17px">${esc(v.tag)}</b><div class="legend">${esc(v.area)}</div></div>
+      <div><small>변경</small><span class="st ${esc(v.current)}">${esc(v.current)}</span> → <span class="st ${state}">${state}</span></div></div>
+    ${mismatch ? `<div class="warn" style="border-color:#fda29b;background:#fff1f3">⚠ 작업요청 상태는 <b>${esc(v.target)}</b> 입니다. 정말 ${state}(으)로 등록합니까?</div>` : ''}
+    <label class="check"><input type="checkbox" id="c1"><span>현장의 밸브 태그(명판)가 <b>${esc(v.tag)}</b> 인 것을 직접 확인했습니다.</span></label>
+    <label class="check"><input type="checkbox" id="c2"><span>밸브를 실제로 <b>${state}</b> 했습니다.</span></label>
+    <label>메모 (선택)</label><input id="opMemo" placeholder="예: 핸들 잠금장치 설치">
+    <div class="err" id="opErr"></div>
+    <div class="row"><button class="btn sec" id="opBack">취소</button><button class="btn" id="opGo" disabled>등록</button></div>`;
+  const upd = () => $('#opGo').disabled = !($('#c1').checked && $('#c2').checked);
+  $('#c1').onchange = upd; $('#c2').onchange = upd;
+  $('#opBack').onclick = () => { delete $('#detail').dataset.busy; openDetail(v.id); };
+  $('#opGo').onclick = async () => {
+    $('#opGo').disabled = true;
+    try {
+      await api(`/api/valves/${v.id}/operate`, {state, rev: v.rev, memo: $('#opMemo').value});
+      toast(`${v.tag} → ${state} 등록됨. 다른 사람의 확인이 필요합니다.`);
+      delete $('#detail').dataset.busy; version = -1; await load(); openDetail(v.id);
+    } catch (e) {
+      $('#opErr').textContent = e.message;
+      if (e.status === 409) { delete $('#detail').dataset.busy; version = -1; await load(); setTimeout(() => openDetail(v.id), 1500); }
+    }
+  };
+}
+async function doVerify(v, ok) {
+  const memo = $('#vMemo').value.trim();
+  if (!ok && !memo) return toast('불일치일 때는 실제 상태/사유를 메모에 적어주세요');
+  if (!confirm(ok ? `${v.tag} 가 실제로 ${v.current} 상태임을 확인합니까?` : `${v.tag} 를 '불일치'로 등록합니까?`)) return;
+  try {
+    await api(`/api/valves/${v.id}/verify`, {ok, rev: v.rev, memo});
+    toast(ok ? '확인완료로 등록했습니다' : '불일치로 등록했습니다. 다시 조작이 필요합니다.');
+    version = -1; await load(); openDetail(v.id);
+  } catch (e) { toast(e.message, 5000); if (e.status === 409) { version = -1; load(); } }
+}
+async function adminEdit(v, body) {
+  try { await api(`/api/valves/${v.id}/edit`, body); toast('저장했습니다'); version = -1; await load(); openDetail(v.id); }
+  catch (e) { toast(e.message); }
+}
+
+/* ---------- 이력 ---------- */
+async function loadHist() {
+  const h = await api('/api/history').catch(() => []);
+  $('#histList').innerHTML = h.map(e => `<div class="box" style="padding:10px 12px;margin-bottom:6px">
+    <div class="legend" style="margin:0">${esc(e.ts)} · ${esc(e.user_name)}</div>
+    <b>${esc(e.tag)}</b> <span class="legend">${esc(e.area)}</span><br>
+    <span class="badge b-${e.kind==='확인'?'확인완료':e.kind==='불일치'?'불일치':e.kind==='조작'?'확인대기':'미조작'}">${esc(e.kind)}</span>
+    ${e.from_state || e.to_state ? esc(e.from_state||'') + ' → ' + esc(e.to_state||'') : ''} ${e.memo ? '· ' + esc(e.memo) : ''}</div>`).join('')
+    || '<div class="box legend">아직 조작 이력이 없습니다.</div>';
+}
+
+/* ---------- 관리자 ---------- */
+async function loadUsers() {
+  const us = await api('/api/users').catch(() => []);
+  $('#userTbl').innerHTML = '<tr><th>아이디</th><th>이름</th><th>부서</th><th>권한</th><th>상태</th><th></th></tr>' +
+    us.map(u => `<tr><td>${esc(u.login)}</td><td>${esc(u.name)}</td><td>${esc(u.dept)}</td>
+      <td>${u.role==='admin'?'관리자':'일반'}</td><td>${u.active?'사용':'<span style="color:var(--bad)">중지</span>'}</td>
+      <td style="white-space:nowrap"><button class="btn sec" style="padding:5px 8px" data-pw="${u.id}">비번초기화</button>
+      <button class="btn sec" style="padding:5px 8px" data-act="${u.id}" data-v="${u.active?0:1}">${u.active?'사용중지':'사용재개'}</button></td></tr>`).join('');
+  $('#userTbl').querySelectorAll('[data-pw]').forEach(b => b.onclick = async () => {
+    const pw = prompt('새 임시 비밀번호(6자 이상)를 입력하세요. 해당 사용자는 다음 로그인 때 바꾸게 됩니다.');
+    if (!pw) return;
+    try { await api('/api/users/' + b.dataset.pw, {password: pw}); toast('비밀번호를 초기화했습니다'); } catch (e) { toast(e.message); }
+  });
+  $('#userTbl').querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
+    try { await api('/api/users/' + b.dataset.act, {active: b.dataset.v === '1'}); loadUsers(); } catch (e) { toast(e.message); }
+  });
+}
+$('#nuBtn').onclick = async () => {
+  $('#nuErr').textContent = '';
+  try {
+    await api('/api/users', {login: $('#nuLogin').value.trim(), name: $('#nuName').value.trim(), dept: $('#nuDept').value.trim(),
+      password: $('#nuPw').value, role: $('#nuRole').value});
+    toast('등록했습니다'); ['#nuLogin','#nuName','#nuDept','#nuPw'].forEach(s => $(s).value=''); loadUsers();
+  } catch (e) { $('#nuErr').textContent = e.message; }
+};
+$('#csvBtn').onclick = async () => {
+  $('#csvErr').textContent = '';
+  const f = $('#csvFile').files[0];
+  if (!f) return $('#csvErr').textContent = 'CSV 파일을 선택하세요';
+  if (!confirm('현재 밸브 목록을 숨기고 새 목록으로 바꿉니다. 계속할까요?')) return;
+  try {
+    let text = await f.text(); text = text.replace(/^﻿/, '');
+    const r = await api('/api/valves/import', {csv: text, memo: $('#csvMemo').value.trim()});
+    toast(`밸브 ${r.count}개를 불러왔습니다`); version = -1; load();
+  } catch (e) { $('#csvErr').textContent = e.message; }
+};
+
+/* ---------- 시작 ---------- */
+(async () => {
+  try { $('#lgId').value = localStorage.getItem('vs_login') || ''; } catch(e) {}
+  try { me = await api('/api/me'); afterLogin(); } catch (e) { showLogin(); }
+})();
+</script>
+</body>
+</html>
