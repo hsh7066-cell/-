@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3a5f">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+<title>밸브 조작 관리</title>
+</head>
+<body>
+<div id="offline" class="offline hidden">인터넷 연결이 끊겼습니다. 화면은 마지막 상태입니다. 조작 등록은 연결된 뒤에 하세요.</div>
+
+<div id="vLoading" class="loading">불러오는 중...</div>
+
+<!-- 설정 안내 (firebase-config.js 미입력) -->
+<div id="vConfig" class="hidden">
+  <div class="box center">
+    <h2 style="margin-top:0">Firebase 설정 필요</h2>
+    <p><code>public/firebase-config.js</code> 파일에 Firebase 콘솔의 설정값(firebaseConfig)을 붙여넣은 뒤 다시 배포하세요. 자세한 순서는 README.md 를 보세요.</p>
+  </div>
+</div>
+
+<!-- 로그인 -->
+<div id="vLogin" class="hidden">
+  <div class="box center">
+    <h2 style="margin-top:0">밸브 조작 관리</h2>
+    <label>아이디</label><input id="lgId" autocomplete="username" autocapitalize="off">
+    <label>비밀번호</label><input id="lgPw" type="password" autocomplete="current-password">
+    <div class="err" id="lgErr"></div>
+    <button class="btn full" id="lgBtn">로그인</button>
+  </div>
+  <div class="box center setup hidden" id="setupBox">
+    <h3 style="margin-top:0">최초 설정: 관리자 계정 만들기</h3>
+    <p class="legend">아직 관리자가 없습니다. 처음 한 번만 나타나며, 여기서 만든 계정이 관리자가 됩니다.</p>
+    <label>관리자 아이디 (영문/숫자)</label><input id="suId" autocapitalize="off">
+    <label>이름</label><input id="suName">
+    <label>비밀번호 (6자 이상)</label><input id="suPw" type="password">
+    <div class="err" id="suErr"></div>
+    <button class="btn full" id="suBtn">관리자 계정 만들기</button>
+  </div>
+</div>
+
+<!-- 등록되지 않은 계정 -->
+<div id="vDenied" class="hidden">
+  <div class="box center">
+    <h2 style="margin-top:0">사용할 수 없는 계정</h2>
+    <p>등록되지 않았거나 사용이 중지된 계정입니다. 관리자에게 문의하세요.</p>
+    <button class="btn full" id="dnOut">로그아웃</button>
+  </div>
+</div>
+
+<!-- 비밀번호 변경 -->
+<div id="vPw" class="hidden">
+  <div class="box center">
+    <h2 style="margin-top:0">비밀번호 변경</h2>
+    <p id="pwMsg" style="font-size:14px;color:var(--muted)"></p>
+    <label>현재(임시) 비밀번호</label><input id="pwOld" type="password">
+    <label>새 비밀번호 (6자 이상)</label><input id="pwNew" type="password">
+    <label>새 비밀번호 확인</label><input id="pwNew2" type="password">
+    <div class="err" id="pwErr"></div>
+    <div class="row"><button class="btn sec" id="pwCancel">취소</button><button class="btn" id="pwBtn">변경</button></div>
+  </div>
+</div>
+
+<!-- 메인 -->
+<div id="vApp" class="hidden">
+  <header>
+    <h1>밸브 조작 관리</h1>
+    <span class="who" id="who"></span>
+    <button id="menuBtn">메뉴</button>
+  </header>
+  <nav class="tabs">
+    <button data-tab="list" class="on">밸브 목록</button>
+    <button data-tab="hist">조작 이력</button>
+    <button data-tab="admin" id="tabAdmin" class="hidden">관리자</button>
+  </nav>
+  <main>
+    <section id="tList">
+      <div class="progress"><div id="prog"></div></div>
+      <div class="legend" id="progTxt"></div>
+      <div class="chips" id="chips"></div>
+      <div class="filters">
+        <input id="q" placeholder="밸브명/도면번호 검색" type="search">
+        <select id="areaSel"></select>
+      </div>
+      <div class="legend">왼쪽 띠: 회색=미조작 · 주황=확인대기 · 초록=확인완료 · 빨강=불일치/요구상태와 다름</div>
+      <div id="list"></div>
+    </section>
+    <section id="tHist" class="hidden">
+      <div class="box" style="padding:10px 14px">
+        <button class="btn sec" id="exHist">전체 이력 엑셀(CSV) 받기</button>
+        <button class="btn sec" id="exStatus">현재 상태표 받기</button>
+      </div>
+      <div class="legend">최근 200건</div>
+      <div id="histList"></div>
+    </section>
+    <section id="tAdmin" class="hidden">
+      <div class="box">
+        <h3 style="margin-top:0">밸브 목록 불러오기 (새 작업)</h3>
+        <p class="legend">밸브 조작요청 엑셀(.xlsx)을 그대로 올리면 됩니다. (열 순서: S, 발행상태, 순번, 기기번호, 기기명, 조작요청 내용, 요청사항, 작업책임자, 연락처, 개방일, 개방시간, 투입일, 투입시간)
+          불러오면 현재 목록은 숨겨지고(이력은 보존) 새 목록이 '미조작' 상태로 시작합니다.</p>
+        <input type="file" id="xlFile" accept=".xlsx,.xls,.csv">
+        <label>메모(작업명)</label><input id="xlMemo" placeholder="예: 2026 축열조 정비">
+        <div class="err" id="xlErr"></div>
+        <div id="xlPreview"></div>
+        <button class="btn" id="xlBtn">불러오기</button>
+      </div>
+      <div class="box">
+        <h3 style="margin-top:0">사용자 등록</h3>
+        <div class="row">
+          <div><label>아이디(영문/숫자)</label><input id="nuLogin" autocapitalize="off"></div>
+          <div><label>이름</label><input id="nuName"></div>
+        </div>
+        <div class="row">
+          <div><label>부서</label><input id="nuDept" placeholder="예: 운영부"></div>
+          <div><label>임시 비밀번호(6자 이상)</label><input id="nuPw"></div>
+        </div>
+        <label>권한</label>
+        <select id="nuRole"><option value="user">일반(조작/확인)</option><option value="admin">관리자</option></select>
+        <div class="err" id="nuErr"></div>
+        <button class="btn" id="nuBtn">등록</button>
+        <p class="legend">등록한 사람은 첫 로그인 때 비밀번호를 직접 바꾸게 됩니다.
+          비밀번호를 잊은 사람은 '사용중지' 후 새 아이디(예: kim2)로 다시 등록하세요.</p>
+      </div>
+      <div class="box">
+        <h3 style="margin-top:0">사용자 목록</h3>
+        <div style="overflow-x:auto"><table id="userTbl"></table></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- 메뉴 -->
+<div id="menu" class="sheet-bg hidden">
+  <div class="sheet">
+    <h2>메뉴</h2>
+    <p class="legend" id="menuInfo"></p>
+    <button class="btn full sec" id="mPw" style="margin-bottom:8px">비밀번호 변경</button>
+    <button class="btn full sec" id="mOut" style="margin-bottom:8px">로그아웃</button>
+    <button class="btn full" id="mClose">닫기</button>
+  </div>
+</div>
+
+<div id="detail" class="sheet-bg hidden"><div class="sheet" id="detailBody"></div></div>
+<div id="toast" class="toast hidden"></div>
+
+<script type="module">
+import * as F from './vendor/firebase.js';
+import { firebaseConfig } from './firebase-config.js';
+
+const EMAIL_DOMAIN = '@valve.local';   // 아이디 → 로그인용 이메일 형식 (실제 메일은 보내지 않음)
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const VIEWS = ['#vLoading','#vConfig','#vLogin','#vDenied','#vPw','#vApp'];
+const show = id => VIEWS.forEach(v => $(v).classList.toggle('hidden', v !== id));
+function toast(msg, ms = 3500) {
+  const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.add('hidden'), ms);
+}
+const pad = n => String(n).padStart(2, '0');
+function fmt(ts) {
+  if (!ts) return '';
+  const d = ts.toDate ? ts.toDate() : ts;
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+const ERR = {
+  'auth/invalid-credential': '아이디 또는 비밀번호가 틀렸습니다',
+  'auth/wrong-password': '비밀번호가 틀렸습니다',
+  'auth/user-not-found': '아이디 또는 비밀번호가 틀렸습니다',
+  'auth/too-many-requests': '여러 번 틀려 잠시 잠겼습니다. 잠시 후 다시 시도하세요',
+  'auth/email-already-in-use': '이미 사용 중인 아이디입니다',
+  'auth/weak-password': '비밀번호는 6자 이상이어야 합니다',
+  'auth/invalid-email': '아이디는 영문/숫자로 정하세요',
+  'auth/network-request-failed': '인터넷 연결을 확인하세요',
+  'permission-denied': '권한이 없습니다 (사용중지되었거나 규칙 위반)',
+  'unavailable': '인터넷 연결을 확인하세요',
+};
+const errMsg = e => ERR[e.code] || e.message || String(e);
+
+if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes('여기에')) { show('#vConfig'); throw new Error('config'); }
+
+const app = F.initializeApp(firebaseConfig);
+const auth = F.getAuth(app);
+const db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) });
+const EMU = ['localhost', '127.0.0.1'].includes(location.hostname);   // 내 PC에서 시험할 때만 에뮬레이터 사용
+if (EMU) { F.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true }); F.connectFirestoreEmulator(db, '127.0.0.1', 8080); }
+
+let me = null, valves = [], filter = '전체', openId = null, busy = false;
+let unsubs = [], firstEvents = true;
+const flashIds = new Set(), revs = new Map();
+
+/* ---------- 로그인 / 계정 상태 ---------- */
+F.onAuthStateChanged(auth, user => {
+  unsubs.forEach(u => u()); unsubs = []; me = null;
+  if (!user) return showLogin();
+  show('#vLoading');
+  unsubs.push(F.onSnapshot(F.doc(db, 'users', user.uid), { includeMetadataChanges: true }, snap => {
+    if (snap.metadata.hasPendingWrites) return;   // 서버 저장이 끝난 뒤에만 반영
+    const first = !me;
+    if (!snap.exists() || !snap.data().active) { me = null; stopData(); return show('#vDenied'); }
+    me = { uid: user.uid, ...snap.data() };
+    if (me.mustChangePw) return showPw(true);
+    if (first || $('#vApp').classList.contains('hidden')) startApp();
+  }, () => show('#vDenied')));
+});
+async function showLogin() {
+  stopData(); show('#vLogin'); $('#lgPw').value = '';
+  try { $('#lgId').value = localStorage.getItem('vs_login') || ''; } catch (e) {}
+  try { const s = await F.getDoc(F.doc(db, 'meta', 'setup')); $('#setupBox').classList.toggle('hidden', s.exists()); }
+  catch (e) { $('#setupBox').classList.add('hidden'); }
+}
+$('#lgBtn').onclick = async () => {
+  $('#lgErr').textContent = '';
+  const id = $('#lgId').value.trim().toLowerCase();
+  try {
+    await F.signInWithEmailAndPassword(auth, id + EMAIL_DOMAIN, $('#lgPw').value);
+    try { localStorage.setItem('vs_login', id); } catch (e) {}
+  } catch (e) { $('#lgErr').textContent = errMsg(e); }
+};
+$('#lgPw').addEventListener('keydown', e => { if (e.key === 'Enter') $('#lgBtn').click(); });
+$('#dnOut').onclick = () => F.signOut(auth);
+
+$('#suBtn').onclick = async () => {
+  $('#suErr').textContent = '';
+  const login = $('#suId').value.trim().toLowerCase(), name = $('#suName').value.trim(), pw = $('#suPw').value;
+  if (!/^[a-z0-9_.-]{2,30}$/.test(login)) return $('#suErr').textContent = '아이디는 영문/숫자 2~30자로 정하세요';
+  if (!name) return $('#suErr').textContent = '이름을 입력하세요';
+  try {
+    const cred = await F.createUserWithEmailAndPassword(auth, login + EMAIL_DOMAIN, pw);
+    const b = F.writeBatch(db);
+    b.set(F.doc(db, 'users', cred.user.uid), { login, name, dept: '', role: 'admin', active: true, mustChangePw: false, createdAt: F.serverTimestamp() });
+    b.set(F.doc(db, 'meta', 'setup'), { adminUid: cred.user.uid, createdAt: F.serverTimestamp() });
+    await b.commit();
+    try { localStorage.setItem('vs_login', login); } catch (e) {}
+    toast('관리자 계정을 만들었습니다');
+  } catch (e) { $('#suErr').textContent = errMsg(e); }
+};
+
+/* ---------- 비밀번호 ---------- */
+function showPw(forced) {
+  show('#vPw');
+  $('#pwMsg').textContent = forced ? '처음 로그인했습니다. 본인만 아는 비밀번호로 바꿔주세요.' : '';
+  $('#pwCancel').classList.toggle('hidden', !!forced);
+  ['#pwOld', '#pwNew', '#pwNew2'].forEach(s => $(s).value = ''); $('#pwErr').textContent = '';
+}
+$('#pwCancel').onclick = () => show('#vApp');
+$('#pwBtn').onclick = async () => {
+  $('#pwErr').textContent = '';
+  if ($('#pwNew').value !== $('#pwNew2').value) return $('#pwErr').textContent = '새 비밀번호가 서로 다릅니다';
+  try {
+    const u = auth.currentUser;
+    await F.reauthenticateWithCredential(u, F.EmailAuthProvider.credential(u.email, $('#pwOld').value));
+    await F.updatePassword(u, $('#pwNew').value);
+    if (me.mustChangePw) await F.updateDoc(F.doc(db, 'users', me.uid), { mustChangePw: false });
+    else show('#vApp');
+    toast('비밀번호를 변경했습니다');
+  } catch (e) { $('#pwErr').textContent = e.code === 'auth/invalid-credential' ? '현재 비밀번호가 틀렸습니다' : errMsg(e); }
+};
+
+/* ---------- 메뉴 / 탭 ---------- */
+$('#menuBtn').onclick = () => { $('#menuInfo').textContent = `${me.name} (${me.login}) · ${me.role === 'admin' ? '관리자' : '일반'}`; $('#menu').classList.remove('hidden'); };
+$('#mClose').onclick = () => $('#menu').classList.add('hidden');
+$('#mPw').onclick = () => { $('#menu').classList.add('hidden'); showPw(false); };
+$('#mOut').onclick = () => { $('#menu').classList.add('hidden'); F.signOut(auth); };
+document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  ['list', 'hist', 'admin'].forEach(t => $('#t' + t[0].toUpperCase() + t.slice(1)).classList.toggle('hidden', b.dataset.tab !== t));
+});
+
+/* ---------- 실시간 데이터 ---------- */
+let dataUnsubs = [], retryTimer = null;
+function stopData() { clearTimeout(retryTimer); dataUnsubs.forEach(u => u()); dataUnsubs = []; }
+// 실시간 연결이 끊기면(권한 확인 지연 등) 잠시 후 다시 연결
+function listenError(e) {
+  console.warn('listener error', e.code);
+  stopData();
+  retryTimer = setTimeout(() => { if (me && me.active && !me.mustChangePw) startApp(); }, 3000);
+}
+function startApp() {
+  show('#vApp');
+  $('#who').textContent = me.name + (me.dept ? ' · ' + me.dept : '');
+  $('#tabAdmin').classList.toggle('hidden', me.role !== 'admin');
+  if (dataUnsubs.length) return;
+  firstEvents = true; revs.clear();
+  dataUnsubs.push(F.onSnapshot(F.query(F.collection(db, 'valves'), F.where('active', '==', true)), { includeMetadataChanges: true }, snap => {
+    $('#offline').classList.toggle('hidden', !snap.metadata.fromCache);
+    valves = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }))
+      .sort((a, b) => (a.seq - b.seq) || a.tag.localeCompare(b.tag));
+    valves.forEach(v => { if (revs.has(v.id) && revs.get(v.id) !== v.rev) flashIds.add(v.id); revs.set(v.id, v.rev); });
+    render();
+    if (openId && !busy && !$('#detail').classList.contains('hidden')) openDetail(openId);
+  }, listenError));
+  dataUnsubs.push(F.onSnapshot(F.query(F.collection(db, 'events'), F.orderBy('ts', 'desc'), F.limit(200)), snap => {
+    const evs = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }));
+    if (!firstEvents) {
+      const news = snap.docChanges().filter(c => c.type === 'added' && c.doc.data().userId !== me.uid).map(c => c.doc.data());
+      if (news.length === 1) { const e = news[0]; toast(`${e.userName}: ${e.tag} ${e.kind}${e.toState ? ' → ' + e.toState : ''}`); }
+      else if (news.length > 1) toast(`다른 사람이 ${news.length}건을 변경했습니다`);
+    }
+    firstEvents = false;
+    renderHist(evs);
+  }, listenError));
+  if (me.role === 'admin') dataUnsubs.push(F.onSnapshot(F.collection(db, 'users'), snap => renderUsers(snap.docs.map(d => ({ uid: d.id, ...d.data() }))), listenError));
+}
+window.addEventListener('online', () => $('#offline').classList.add('hidden'));
+window.addEventListener('offline', () => $('#offline').classList.remove('hidden'));
+
+/* ---------- 목록 ---------- */
+const isDiff = v => v.status !== '미조작' && v.target && v.current !== v.target;
+function cls(v) {
+  if (v.status === '불일치') return 's-bad';
+  if (isDiff(v)) return 's-diff';
+  if (v.status === '확인대기') return 's-wait';
+  if (v.status === '확인완료') return 's-ok';
+  return '';
+}
+const FILTERS = {
+  '전체': v => true,
+  '미조작': v => v.status === '미조작',
+  '확인대기': v => v.status === '확인대기',
+  '불일치': v => v.status === '불일치',
+  '요구상태와 다름': isDiff,
+  '확인완료': v => v.status === '확인완료' && v.current === v.target,
+};
+function render() {
+  const total = valves.length, done = valves.filter(FILTERS['확인완료']).length;
+  $('#prog').style.width = total ? (done / total * 100) + '%' : 0;
+  $('#progTxt').textContent = `요구상태대로 조작·확인 완료 ${done} / ${total}`;
+  $('#chips').innerHTML = Object.keys(FILTERS).map(k =>
+    `<button class="chip ${k === filter ? 'on' : ''}" data-f="${k}">${k}<b>${valves.filter(FILTERS[k]).length}</b></button>`).join('');
+  $('#chips').querySelectorAll('.chip').forEach(c => c.onclick = () => { filter = c.dataset.f; render(); });
+  const areas = [...new Set(valves.map(v => v.area))];
+  const curArea = $('#areaSel').value;
+  $('#areaSel').innerHTML = '<option value="">전체 구역</option>' + areas.map(a => `<option ${a === curArea ? 'selected' : ''}>${esc(a)}</option>`).join('');
+  const q = $('#q').value.trim().toUpperCase();
+  const list = valves.filter(FILTERS[filter]).filter(v => !curArea || v.area === curArea)
+    .filter(v => !q || (v.tag + ' ' + v.pid + ' ' + v.area).toUpperCase().includes(q));
+  let html = '', lastArea = null;
+  for (const v of list) {
+    if (v.area !== lastArea) { html += `<div class="area">${esc(v.area || '구역 없음')}</div>`; lastArea = v.area; }
+    html += `<div class="valve ${cls(v)} ${flashIds.has(v.id) ? 'flash' : ''}" data-id="${v.id}">
+      <div class="main"><div class="tag">${esc(v.seq)}. ${esc(v.tag)}</div>
+        <div class="sub"><span class="badge b-${esc(v.status)}">${esc(v.status)}</span>
+          ${v.operatedBy ? esc(v.operatedBy) + ' ' + esc(fmt(v.operatedAt).slice(5, 16)) : ''}${v.note ? ' · ' + esc(v.note) : ''}</div></div>
+      <div class="states"><span>요구 <span class="st outline ${esc(v.target)}">${esc(v.target || '-')}</span></span>
+        <span>현재 <span class="st ${esc(v.current)}">${esc(v.current)}</span></span></div></div>`;
+  }
+  $('#list').innerHTML = html || `<div class="box legend">${valves.length ? '해당하는 밸브가 없습니다.' : '등록된 밸브가 없습니다. 관리자가 [관리자] 탭에서 엑셀을 불러오세요.'}</div>`;
+  $('#list').querySelectorAll('.valve').forEach(el => el.onclick = () => openDetail(el.dataset.id));
+  flashIds.clear();
+}
+$('#q').oninput = render; $('#areaSel').onchange = render;
+
+/* ---------- 상세 / 조작 / 확인 ---------- */
+async function openDetail(id) {
+  const v = valves.find(x => x.id === id); if (!v) return;
+  openId = id;
+  let hist = [];
+  try {
+    const s = await F.getDocs(F.query(F.collection(db, 'events'), F.where('valveId', '==', id)));
+    hist = s.docs.map(d => d.data({ serverTimestamps: 'estimate' })).sort((a, b) => (b.ts?.toMillis?.() || 0) - (a.ts?.toMillis?.() || 0));
+  } catch (e) {}
+  if (busy || openId !== id) return;
+  const canVerify = (v.status === '확인대기' || v.status === '불일치');
+  const mine = v.operatedById === me.uid;
+  const isAdmin = me.role === 'admin';
+  $('#detailBody').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+      <div><h2>${esc(v.tag)}</h2><div class="legend">${esc(v.area)}${v.pid ? ' · ' + esc(v.pid) : ''} · 순번 ${esc(v.seq)}</div></div>
+      <button class="btn sec" id="dClose">닫기</button></div>
+    <div class="bigstate">
+      <div><small>요구상태(작업요청)</small><span class="st outline ${esc(v.target)}">${esc(v.target || '-')}</span></div>
+      <div><small>현재상태</small><span class="st ${esc(v.current)}">${esc(v.current)}</span></div>
+      <div><small>검증</small><span class="badge b-${esc(v.status)}" style="font-size:14px">${esc(v.status)}</span></div>
+    </div>
+    ${isDiff(v) ? `<div class="warn" style="border-color:#fda29b;background:#fff1f3">⚠ 현재상태가 요구상태(${esc(v.target)})와 다릅니다.</div>` : ''}
+    <div class="kv">
+      <div>요청사항</div><div>${esc(v.note || '-')}</div>
+      <div>작업책임자</div><div>${esc(v.owner || '-')} ${esc(v.phone)}</div>
+      <div>개방~투입</div><div>${esc(v.workStart)} ~ ${esc(v.workEnd)}</div>
+      <div>조작</div><div>${v.operatedBy ? esc(v.operatedBy) + ' · ' + esc(fmt(v.operatedAt)) : '-'}</div>
+      <div>확인</div><div>${v.verifiedBy ? esc(v.verifiedBy) + ' · ' + esc(fmt(v.verifiedAt)) : '-'}</div>
+    </div>
+    <div class="section"><h3>① 현장 조작 등록 (밸브를 실제로 돌린 뒤 누르세요)</h3>
+      <div class="ops">
+        <button class="o ${v.target === 'OPEN' ? 'target' : ''}" data-s="OPEN">OPEN 했음</button>
+        <button class="c ${v.target === 'CLOSE' ? 'target' : ''}" data-s="CLOSE">CLOSE 했음</button>
+      </div>
+      <div class="legend">노란 테두리 = 작업요청 상태</div>
+    </div>
+    ${canVerify ? `<div class="section"><h3>② 확인(검증) — 조작자가 아닌 사람이 현장에서 직접 보고 누르세요</h3>
+      ${mine ? `<div class="warn">본인이 조작한 밸브입니다. 다른 사람이 확인해야 합니다.</div>` : `
+      <div class="warn">${esc(v.operatedBy)} 님이 <b>${esc(v.current)}</b>(으)로 조작했다고 등록했습니다. 실제 밸브도 ${esc(v.current)} 상태입니까?</div>
+      <input id="vMemo" placeholder="메모 (불일치일 때 필수: 실제 상태/사유)">
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="vOk" style="background:var(--ok)">맞음 (확인완료)</button>
+        <button class="btn" id="vNg" style="background:var(--bad)">다름 (불일치)</button>
+      </div>`}</div>` : ''}
+    ${isAdmin ? `<div class="section"><h3>관리자: 밸브 정보 수정</h3>
+      <div class="row"><div><label>요구상태</label><select id="eTarget">
+        ${['OPEN', 'CLOSE', ''].map(s => `<option value="${s}" ${v.target === s ? 'selected' : ''}>${s || '(없음)'}</option>`).join('')}</select></div>
+        <div><label>도면번호</label><input id="ePid" value="${esc(v.pid)}"></div></div>
+      <div class="row"><div><label>구역</label><input id="eArea" value="${esc(v.area)}"></div>
+        <div><label>밸브명</label><input id="eTag" value="${esc(v.tag)}"></div></div>
+      <label>요청사항</label><input id="eNote" value="${esc(v.note)}">
+      <div class="row" style="margin-top:8px"><button class="btn sec" id="eSave">정보 저장</button>
+        <button class="btn sec" id="eReset">상태 초기화(미조작)</button></div></div>` : ''}
+    <div class="section"><h3>이 밸브의 이력</h3>
+      ${hist.map(e => `<div class="hist"><div class="t">${esc(fmt(e.ts))} · ${esc(e.userName)}</div>
+        <b>${esc(e.kind)}</b> ${e.fromState || e.toState ? esc(e.fromState || '') + ' → ' + esc(e.toState || '') : ''}
+        ${e.memo ? '<div>' + esc(e.memo) + '</div>' : ''}</div>`).join('') || '<div class="legend">이력 없음</div>'}
+    </div>`;
+  $('#detail').classList.remove('hidden');
+  $('#dClose').onclick = closeDetail;
+  $('#detailBody').querySelectorAll('.ops button').forEach(b => b.onclick = () => confirmOperate(v, b.dataset.s));
+  if (canVerify && !mine) { $('#vOk').onclick = () => doVerify(v, true); $('#vNg').onclick = () => doVerify(v, false); }
+  if (isAdmin) {
+    $('#eSave').onclick = () => adminEdit(v, { target: $('#eTarget').value, pid: $('#ePid').value.trim(), area: $('#eArea').value.trim(), tag: $('#eTag').value.trim(), note: $('#eNote').value.trim() });
+    $('#eReset').onclick = () => confirm(`${v.tag} 상태를 '미확인/미조작'으로 초기화할까요? (이력은 남습니다)`) && adminEdit(v, null);
+  }
+}
+function closeDetail() { $('#detail').classList.add('hidden'); openId = null; busy = false; }
+$('#detail').onclick = e => { if (e.target.id === 'detail') closeDetail(); };
+
+class Conflict extends Error {}
+// 밸브 변경 + 이력 기록을 한 번에(트랜잭션). 화면에 보던 rev 와 서버 rev 가 다르면 거절.
+async function changeValve(v, makeUpdate, event) {
+  if (!navigator.onLine) throw new Error('인터넷 연결이 없습니다. 연결된 곳에서 다시 등록하세요.');
+  const ref = F.doc(db, 'valves', v.id);
+  await F.runTransaction(db, async tx => {
+    const s = await tx.get(ref);
+    const cur = s.data();
+    if (!cur || !cur.active) throw new Error('목록에서 내려간 밸브입니다');
+    if (cur.rev !== v.rev) throw new Conflict('다른 사람이 방금 이 밸브 상태를 바꿨습니다. 최신 상태를 보고 다시 확인하세요.');
+    const upd = { ...makeUpdate(cur), rev: cur.rev + 1 };
+    tx.update(ref, upd);
+    tx.set(F.doc(F.collection(db, 'events')), {
+      valveId: v.id, tag: upd.tag ?? cur.tag, area: upd.area ?? cur.area, userId: me.uid, userName: me.name,
+      ts: F.serverTimestamp(), rev: cur.rev + 1, fromState: '', toState: '', memo: '', ...event });
+  });
+}
+function confirmOperate(v, state) {
+  busy = true;
+  const mismatch = v.target && v.target !== state;
+  $('#detailBody').innerHTML = `
+    <h2>조작 등록 확인</h2>
+    <div class="bigstate"><div><small>밸브</small><b style="font-size:17px">${esc(v.tag)}</b><div class="legend">${esc(v.area)}</div></div>
+      <div><small>변경</small><span class="st ${esc(v.current)}">${esc(v.current)}</span> → <span class="st ${state}">${state}</span></div></div>
+    ${mismatch ? `<div class="warn" style="border-color:#fda29b;background:#fff1f3">⚠ 작업요청 상태는 <b>${esc(v.target)}</b> 입니다. 정말 ${state}(으)로 등록합니까?</div>` : ''}
+    <label class="check"><input type="checkbox" id="c1"><span>현장의 밸브 태그(명판)가 <b>${esc(v.tag)}</b> 인 것을 직접 확인했습니다.</span></label>
+    <label class="check"><input type="checkbox" id="c2"><span>밸브를 실제로 <b>${state}</b> 했습니다.</span></label>
+    <label>메모 (선택)</label><input id="opMemo" placeholder="예: 핸들 잠금장치 설치">
+    <div class="err" id="opErr"></div>
+    <div class="row"><button class="btn sec" id="opBack">취소</button><button class="btn" id="opGo" disabled>등록</button></div>`;
+  const upd = () => $('#opGo').disabled = !($('#c1').checked && $('#c2').checked);
+  $('#c1').onchange = upd; $('#c2').onchange = upd;
+  $('#opBack').onclick = () => { busy = false; openDetail(v.id); };
+  $('#opGo').onclick = async () => {
+    $('#opGo').disabled = true;
+    try {
+      await changeValve(v, cur => ({ current: state, status: '확인대기', operatedBy: me.name, operatedById: me.uid,
+        operatedAt: F.serverTimestamp(), verifiedBy: '', verifiedById: '', verifiedAt: null }),
+        { kind: '조작', fromState: v.current, toState: state, memo: $('#opMemo').value.trim() });
+      toast(`${v.tag} → ${state} 등록됨. 다른 사람의 확인이 필요합니다.`);
+      busy = false; openDetail(v.id);
+    } catch (e) {
+      $('#opErr').textContent = errMsg(e);
+      if (e instanceof Conflict) setTimeout(() => { busy = false; openDetail(v.id); }, 2000); else $('#opGo').disabled = false;
+    }
+  };
+}
+async function doVerify(v, ok) {
+  const memo = $('#vMemo').value.trim();
+  if (!ok && !memo) return toast('불일치일 때는 실제 상태/사유를 메모에 적어주세요');
+  if (!confirm(ok ? `${v.tag} 가 실제로 ${v.current} 상태임을 확인합니까?` : `${v.tag} 를 '불일치'로 등록합니까?`)) return;
+  try {
+    await changeValve(v, () => ({ status: ok ? '확인완료' : '불일치', verifiedBy: me.name, verifiedById: me.uid, verifiedAt: F.serverTimestamp() }),
+      { kind: ok ? '확인' : '불일치', fromState: v.current, toState: v.current, memo });
+    toast(ok ? '확인완료로 등록했습니다' : '불일치로 등록했습니다. 다시 조작이 필요합니다.');
+  } catch (e) { toast(errMsg(e), 5000); }
+}
+async function adminEdit(v, fields) {
+  try {
+    if (fields) {
+      if (!fields.tag) return toast('밸브명은 비울 수 없습니다');
+      const label = { target: '요구상태', pid: '도면번호', area: '구역', tag: '밸브명', note: '요청사항' };
+      const changes = Object.keys(fields).filter(k => (v[k] || '') !== fields[k]);
+      if (!changes.length) return toast('바뀐 내용이 없습니다');
+      await changeValve(v, () => Object.fromEntries(changes.map(k => [k, fields[k]])),
+        { kind: '수정', memo: changes.map(k => `${label[k]}: ${v[k] || '-'} → ${fields[k] || '-'}`).join('; ') });
+    } else {
+      await changeValve(v, () => ({ current: '미확인', status: '미조작', operatedBy: '', operatedById: '', operatedAt: null,
+        verifiedBy: '', verifiedById: '', verifiedAt: null }), { kind: '초기화', fromState: v.current, toState: '미확인' });
+    }
+    toast('저장했습니다');
+  } catch (e) { toast(errMsg(e)); }
+}
+
+/* ---------- 이력 ---------- */
+function renderHist(evs) {
+  const shown = evs.filter(e => e.kind !== '등록');
+  $('#histList').innerHTML = shown.map(e => `<div class="box" style="padding:10px 12px;margin-bottom:6px">
+    <div class="legend" style="margin:0">${esc(fmt(e.ts))} · ${esc(e.userName)}</div>
+    <b>${esc(e.tag)}</b> <span class="legend">${esc(e.area)}</span><br>
+    <span class="badge b-${e.kind === '확인' ? '확인완료' : e.kind === '불일치' ? '불일치' : e.kind === '조작' ? '확인대기' : '미조작'}">${esc(e.kind)}</span>
+    ${e.fromState || e.toState ? esc(e.fromState || '') + ' → ' + esc(e.toState || '') : ''} ${e.memo ? '· ' + esc(e.memo) : ''}</div>`).join('')
+    || '<div class="box legend">아직 조작 이력이 없습니다.</div>';
+}
+function downloadCsv(name, header, rows) {
+  const q = x => { const s = String(x ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const text = '﻿' + [header, ...rows].map(r => r.map(q).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+  a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+$('#exHist').onclick = async () => {
+  try {
+    const s = await F.getDocs(F.query(F.collection(db, 'events'), F.orderBy('ts')));
+    downloadCsv('밸브조작이력.csv', ['일시', '구역', '밸브명', '구분', '변경전', '변경후', '작업자', '메모'],
+      s.docs.map(d => d.data()).map(e => [fmt(e.ts), e.area, e.tag, e.kind, e.fromState, e.toState, e.userName, e.memo]));
+  } catch (e) { toast(errMsg(e)); }
+};
+$('#exStatus').onclick = () => downloadCsv('밸브현재상태.csv',
+  ['순번', '구역', '밸브명', '도면번호', '요구상태', '현재상태', '검증', '조작자', '조작일시', '확인자', '확인일시', '요청사항'],
+  valves.map(v => [v.seq, v.area, v.tag, v.pid, v.target, v.current, v.status, v.operatedBy, fmt(v.operatedAt), v.verifiedBy, fmt(v.verifiedAt), v.note]));
+
+/* ---------- 관리자: 사용자 ---------- */
+function renderUsers(us) {
+  us.sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
+  $('#userTbl').innerHTML = '<tr><th>아이디</th><th>이름</th><th>부서</th><th>권한</th><th>상태</th><th></th></tr>' +
+    us.map(u => `<tr><td>${esc(u.login)}</td><td>${esc(u.name)}</td><td>${esc(u.dept)}</td>
+      <td>${u.role === 'admin' ? '관리자' : '일반'}</td>
+      <td>${u.active ? (u.mustChangePw ? '첫 로그인 전' : '사용') : '<span style="color:var(--bad)">중지</span>'}</td>
+      <td>${u.uid === me.uid ? '' : `<button class="btn sec" style="padding:5px 8px" data-uid="${u.uid}" data-v="${u.active ? 0 : 1}">${u.active ? '사용중지' : '사용재개'}</button>`}</td></tr>`).join('');
+  $('#userTbl').querySelectorAll('[data-uid]').forEach(b => b.onclick = async () => {
+    const on = b.dataset.v === '1';
+    if (!on && !confirm('이 사용자를 사용중지할까요? 바로 접속이 차단됩니다.')) return;
+    try { await F.updateDoc(F.doc(db, 'users', b.dataset.uid), { active: on }); } catch (e) { toast(errMsg(e)); }
+  });
+}
+$('#nuBtn').onclick = async () => {
+  $('#nuErr').textContent = '';
+  const login = $('#nuLogin').value.trim().toLowerCase(), name = $('#nuName').value.trim(), pw = $('#nuPw').value;
+  if (!/^[a-z0-9_.-]{2,30}$/.test(login)) return $('#nuErr').textContent = '아이디는 영문/숫자 2~30자로 정하세요';
+  if (!name) return $('#nuErr').textContent = '이름을 입력하세요';
+  if (pw.length < 6) return $('#nuErr').textContent = '비밀번호는 6자 이상이어야 합니다';
+  $('#nuBtn').disabled = true;
+  // 관리자 로그인을 유지한 채 새 계정을 만들기 위해 보조 연결을 잠깐 사용
+  const sec = F.initializeApp(firebaseConfig, 'sec-' + Date.now());
+  try {
+    const sa = F.getAuth(sec);
+    if (EMU) F.connectAuthEmulator(sa, 'http://127.0.0.1:9099', { disableWarnings: true });
+    const cred = await F.createUserWithEmailAndPassword(sa, login + EMAIL_DOMAIN, pw);
+    await F.signOut(sa);
+    await F.setDoc(F.doc(db, 'users', cred.user.uid), { login, name, dept: $('#nuDept').value.trim(),
+      role: $('#nuRole').value === 'admin' ? 'admin' : 'user', active: true, mustChangePw: true, createdAt: F.serverTimestamp() });
+    toast(`${name}(${login}) 등록했습니다`);
+    ['#nuLogin', '#nuName', '#nuDept', '#nuPw'].forEach(s => $(s).value = '');
+  } catch (e) {
+    $('#nuErr').textContent = e.code === 'auth/email-already-in-use'
+      ? '이미 있는 아이디입니다. 다른 아이디(예: ' + login + '2)를 쓰세요.' : errMsg(e);
+  } finally { F.deleteApp(sec); $('#nuBtn').disabled = false; }
+};
+
+/* ---------- 관리자: 엑셀 불러오기 ---------- */
+let parsed = null;
+function loadXlsxLib() {
+  if (window.XLSX) return Promise.resolve();
+  return new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'vendor/xlsx.full.min.js'; s.onload = ok; s.onerror = () => no(new Error('엑셀 모듈을 불러오지 못했습니다')); document.head.appendChild(s); });
+}
+function normState(raw, rowNo, warns) {
+  const s = String(raw || '').toUpperCase().replace(/\s/g, '');
+  if (['OPEN', '열림', '개방'].includes(s)) return 'OPEN';
+  if (['CLOSE', 'CLOSED', '닫힘', '폐쇄'].includes(s)) return 'CLOSE';
+  if (s.startsWith('CLO') || s.startsWith('CLS')) { warns.push(`${rowNo}행: '${raw}' → CLOSE`); return 'CLOSE'; }
+  if (s.startsWith('OP')) { warns.push(`${rowNo}행: '${raw}' → OPEN`); return 'OPEN'; }
+  warns.push(`${rowNo}행: 요구상태 '${raw}' 알 수 없음 → 빈칸`); return '';
+}
+const cell = x => x instanceof Date ? `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}` : String(x ?? '').trim();
+$('#xlFile').onchange = async () => {
+  $('#xlErr').textContent = ''; $('#xlPreview').innerHTML = ''; parsed = null;
+  const f = $('#xlFile').files[0]; if (!f) return;
+  try {
+    await loadXlsxLib();
+    const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+    const head = rows[0].map(cell), warns = [], out = [];
+    const named = head.includes('밸브명');   // import_excel.py 로 만든 valves.csv 형식
+    const col = k => head.indexOf(k);
+    rows.slice(1).forEach((r, i) => {
+      const g = n => cell(r[n]);
+      const rec = named
+        ? { seq: g(col('순번')), area: g(col('구역')), tag: g(col('밸브명')), pid: g(col('도면번호')), target: g(col('요구상태')), note: g(col('요청사항')),
+            owner: g(col('작업책임자')), phone: g(col('연락처')), workStart: g(col('개방일시')), workEnd: g(col('투입일시')) }
+        : { seq: g(0), area: g(3), tag: g(4), pid: g(2), target: g(5), note: g(6), owner: g(7), phone: g(8),
+            workStart: (g(9) + ' ' + g(10)).trim(), workEnd: (g(11) + ' ' + g(12)).trim() };
+      if (!rec.tag) return;
+      rec.target = normState(rec.target, i + 2, warns);
+      rec.note = rec.note === '-' ? '' : rec.note.replace(/\n/g, ' / ');
+      rec.seq = /^\d+$/.test(rec.seq) ? +rec.seq : out.length + 1;
+      out.push(rec);
+    });
+    if (!out.length) throw new Error('밸브가 없습니다. 첫 번째 시트, 5번째 열(기기명)을 확인하세요.');
+    parsed = out;
+    const cnt = s => out.filter(x => x.target === s).length;
+    $('#xlPreview').innerHTML = `<div class="warn">밸브 <b>${out.length}</b>개 (OPEN ${cnt('OPEN')}, CLOSE ${cnt('CLOSE')}) · 구역 ${new Set(out.map(x => x.area)).size}곳
+      ${warns.length ? `<br>자동 수정/확인 필요 ${warns.length}건:<br><span class="legend">${warns.map(esc).join('<br>')}</span>` : ''}</div>`;
+  } catch (e) { $('#xlErr').textContent = e.message; }
+};
+$('#xlBtn').onclick = async () => {
+  $('#xlErr').textContent = '';
+  if (!parsed) return $('#xlErr').textContent = '엑셀 파일을 선택하세요';
+  if (!navigator.onLine) return $('#xlErr').textContent = '인터넷 연결이 필요합니다';
+  if (!confirm(`현재 밸브 ${valves.length}개를 숨기고 새 목록 ${parsed.length}개로 바꿉니다. 계속할까요?`)) return;
+  $('#xlBtn').disabled = true;
+  const memo = $('#xlMemo').value.trim() || '목록 불러오기';
+  try {
+    const ops = [];
+    for (const v of valves) ops.push(b => b.update(F.doc(db, 'valves', v.id), { active: false, rev: v.rev + 1 }));
+    for (const r of parsed) {
+      const ref = F.doc(F.collection(db, 'valves'));
+      ops.push(b => b.set(ref, { ...r, current: '미확인', status: '미조작', operatedBy: '', operatedById: '', operatedAt: null,
+        verifiedBy: '', verifiedById: '', verifiedAt: null, rev: 0, active: true, batch: memo, createdAt: F.serverTimestamp() }));
+      ops.push(b => b.set(F.doc(F.collection(db, 'events')), { valveId: ref.id, tag: r.tag, area: r.area, kind: '등록', userId: me.uid,
+        userName: me.name, ts: F.serverTimestamp(), rev: 0, fromState: '', toState: r.target, memo }));
+    }
+    for (let i = 0; i < ops.length; i += 200) {
+      const b = F.writeBatch(db); ops.slice(i, i + 200).forEach(op => op(b)); await b.commit();
+    }
+    toast(`밸브 ${parsed.length}개를 불러왔습니다`);
+    parsed = null; $('#xlFile').value = ''; $('#xlPreview').innerHTML = '';
+  } catch (e) { $('#xlErr').textContent = errMsg(e); }
+  finally { $('#xlBtn').disabled = false; }
+};
+</script>
+</body>
+</html>

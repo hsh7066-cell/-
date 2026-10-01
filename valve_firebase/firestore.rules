@@ -1,0 +1,118 @@
+rules_version = '2';
+
+// 밸브 조작 관리 - Firestore 보안 규칙
+// 화면(앱)을 조작해도 서버에서 아래 규칙을 반드시 통과해야 저장됩니다.
+//  - 등록된(사용중) 사용자만 읽기/쓰기
+//  - 조작 등록은 본인 이름으로만, 확인(검증)은 조작자가 아닌 다른 사람만
+//  - 이력(events)은 추가만 가능, 수정/삭제 불가
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function userPath(uid) { return /databases/$(db)/documents/users/$(uid); }
+    function me() { return get(userPath(request.auth.uid)).data; }
+    function isActive() {
+      return signedIn() && exists(userPath(request.auth.uid)) && me().active == true;
+    }
+    function isAdmin() { return isActive() && me().role == 'admin'; }
+    function isState(s) { return s == 'OPEN' || s == 'CLOSE'; }
+    function onlyChanged(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    // 최초 설정 여부 (관리자 계정이 만들어졌는지)
+    match /meta/setup {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.adminUid == request.auth.uid
+        && getAfter(userPath(request.auth.uid)).data.role == 'admin';
+      allow update, delete: if false;
+    }
+
+    match /users/{uid} {
+      function validUser() {
+        let d = request.resource.data;
+        return d.login is string && d.name is string && d.name.size() > 0
+          && d.role in ['admin', 'user'] && d.active is bool && d.mustChangePw is bool;
+      }
+      allow read: if isActive() || (signedIn() && request.auth.uid == uid);
+      allow create: if (isAdmin() && validUser())
+        // 최초 1회: 관리자 본인 등록 (meta/setup 과 함께 저장될 때만)
+        || (signedIn() && uid == request.auth.uid && validUser()
+            && !exists(/databases/$(db)/documents/meta/setup)
+            && existsAfter(/databases/$(db)/documents/meta/setup)
+            && request.resource.data.role == 'admin' && request.resource.data.active == true);
+      allow update: if (isAdmin() && validUser()
+            && request.resource.data.login == resource.data.login
+            // 관리자는 자기 자신을 중지하거나 일반으로 내릴 수 없음
+            && !(uid == request.auth.uid
+                 && (request.resource.data.active != true || request.resource.data.role != 'admin')))
+        // 본인: 비밀번호 변경 후 '변경 필요' 표시만 끌 수 있음
+        || (signedIn() && uid == request.auth.uid
+            && onlyChanged(['mustChangePw']) && request.resource.data.mustChangePw == false);
+      allow delete: if false;
+    }
+
+    match /valves/{vid} {
+      // 현장 조작 등록
+      function isOperate() {
+        let d = request.resource.data;
+        return isActive() && resource.data.active == true
+          && onlyChanged(['current', 'status', 'operatedBy', 'operatedById', 'operatedAt',
+                          'verifiedBy', 'verifiedById', 'verifiedAt', 'rev'])
+          && isState(d.current) && d.status == '확인대기'
+          && d.operatedById == request.auth.uid && d.operatedBy == me().name
+          && d.operatedAt == request.time
+          && d.verifiedBy == '' && d.verifiedById == '' && d.verifiedAt == null
+          && d.rev == resource.data.rev + 1;
+      }
+      // 확인(검증): 조작한 사람과 다른 사람만
+      function isVerify() {
+        let d = request.resource.data;
+        return isActive() && resource.data.active == true
+          && onlyChanged(['status', 'verifiedBy', 'verifiedById', 'verifiedAt', 'rev'])
+          && resource.data.status in ['확인대기', '불일치']
+          && d.status in ['확인완료', '불일치']
+          && resource.data.operatedById != request.auth.uid
+          && d.verifiedById == request.auth.uid && d.verifiedBy == me().name
+          && d.verifiedAt == request.time
+          && d.rev == resource.data.rev + 1;
+      }
+      // 관리자: 정보 수정/숨김(조작·확인 기록은 못 바꿈) 또는 '미조작'으로 초기화
+      function isAdminEdit() {
+        let d = request.resource.data;
+        let r = resource.data;
+        return isAdmin() && d.rev == r.rev + 1 && d.tag is string && d.tag.size() > 0 && (
+          (d.status == r.status && d.current == r.current
+            && d.operatedBy == r.operatedBy && d.operatedById == r.operatedById
+            && d.operatedAt == r.operatedAt && d.verifiedBy == r.verifiedBy
+            && d.verifiedById == r.verifiedById && d.verifiedAt == r.verifiedAt)
+          || (d.status == '미조작' && d.current == '미확인'
+            && d.operatedById == '' && d.verifiedById == ''));
+      }
+      allow read: if isActive();
+      allow create: if isAdmin()
+        && request.resource.data.tag is string && request.resource.data.tag.size() > 0
+        && request.resource.data.status == '미조작' && request.resource.data.current == '미확인'
+        && request.resource.data.rev == 0 && request.resource.data.active == true;
+      allow update: if isOperate() || isVerify() || isAdminEdit();
+      allow delete: if false;
+    }
+
+    match /events/{eid} {
+      function valvePath() { return /databases/$(db)/documents/valves/$(request.resource.data.valveId); }
+      allow read: if isActive();
+      allow create: if isActive()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.userName == me().name
+        && request.resource.data.ts == request.time
+        && (
+          // 조작/확인 이력: 같은 요청에서 해당 밸브가 실제로 바뀐 경우에만
+          (request.resource.data.kind in ['조작', '확인', '불일치']
+            && get(valvePath()).data.rev + 1 == request.resource.data.rev
+            && getAfter(valvePath()).data.rev == request.resource.data.rev)
+          || (isAdmin() && request.resource.data.kind in ['등록', '수정', '초기화', '숨김']));
+      allow update, delete: if false;
+    }
+  }
+}
