@@ -85,7 +85,8 @@
         <input id="q" placeholder="밸브명/도면번호 검색" type="search">
         <select id="areaSel"></select>
       </div>
-      <div class="legend">왼쪽 띠: 회색=미조작 · 주황=확인대기 · 초록=확인완료 · 빨강=불일치/요구상태와 다름</div>
+      <div class="legend">왼쪽 띠: 회색=미조작 · 노랑=확인대기 · 초록=확인완료 · 빨강=불일치/요구상태와 다름</div>
+      <button class="add-btn hidden" id="addValveBtn">+ 밸브 추가 (수기 등록)</button>
       <div id="list"></div>
     </section>
     <section id="tHist" class="hidden">
@@ -292,6 +293,7 @@ function startApp() {
   show('#vApp');
   $('#who').textContent = me.name + (me.dept ? ' · ' + me.dept : '');
   $('#tabAdmin').classList.toggle('hidden', me.role !== 'admin');
+  $('#addValveBtn').classList.toggle('hidden', me.role !== 'admin');
   if (dataUnsubs.length) return;
   firstEvents = true; revs.clear();
   dataUnsubs.push(F.onSnapshot(F.query(F.collection(db, 'valves'), F.where('active', '==', true)), { includeMetadataChanges: true }, snap => {
@@ -517,6 +519,55 @@ function confirmOperate(v, state) {
     }
   };
 }
+/* ---------- 관리자: 밸브 수기 등록 ---------- */
+$('#addValveBtn').onclick = () => {
+  busy = true; openId = null;
+  const areas = [...new Set(valves.map(v => v.area).filter(Boolean))];
+  const nextSeq = valves.reduce((m, v) => Math.max(m, +v.seq || 0), 0) + 1;
+  $('#detailBody').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:start"><h2>밸브 추가 (수기 등록)</h2>
+      <button class="btn sec" id="avClose">닫기</button></div>
+    <div class="row"><div><label>순번</label><input id="avSeq" type="number" value="${nextSeq}"></div>
+      <div><label>구역(기기번호) *</label><input id="avArea" list="avAreas" placeholder="예: 축열조">
+        <datalist id="avAreas">${areas.map(a => `<option value="${esc(a)}">`).join('')}</datalist></div></div>
+    <label>기기명(밸브명) *</label><input id="avTag" placeholder="예: HV-305">
+    <div class="row"><div><label>조작요청(요구상태) *</label><select id="avTarget"><option>CLOSE</option><option>OPEN</option></select></div>
+      <div><label>현재상태</label><select id="avCur"><option value="">미확인</option><option>OPEN</option><option>CLOSE</option></select></div></div>
+    <div class="row"><div><label>도면번호</label><input id="avPid"></div><div><label>작업책임자</label><input id="avOwner"></div></div>
+    <label>요청사항</label><input id="avNote">
+    <div class="row"><div><label>개방일시</label><input id="avStart" placeholder="2026-10-05 09:00"></div>
+      <div><label>투입일시</label><input id="avEnd" placeholder="2026-10-16 18:00"></div></div>
+    <label>비고</label><input id="avRemark">
+    <p class="legend">현재상태를 OPEN/CLOSE 로 넣으면 '확인대기'로 등록되어 팀장 확인이 필요합니다.</p>
+    <div class="err" id="avErr"></div>
+    <button class="btn full" id="avSave">등록</button>`;
+  $('#detail').classList.remove('hidden');
+  $('#avClose').onclick = closeDetail;
+  $('#avSave').onclick = async () => {
+    const r = { seq: +$('#avSeq').value || nextSeq, area: $('#avArea').value.trim(), tag: $('#avTag').value.trim(), pid: $('#avPid').value.trim(),
+      target: $('#avTarget').value, note: $('#avNote').value.trim(), owner: $('#avOwner').value.trim(), phone: '',
+      workStart: $('#avStart').value.trim(), workEnd: $('#avEnd').value.trim(), drawing: '', drawingLoc: '', remark: $('#avRemark').value.trim() };
+    const cur = $('#avCur').value;
+    if (!r.area || !r.tag) return $('#avErr').textContent = '구역과 기기명은 꼭 입력하세요';
+    if (valves.some(v => keyOf(v.area, v.tag) === keyOf(r.area, r.tag))) return $('#avErr').textContent = '같은 구역에 같은 기기명의 밸브가 이미 있습니다';
+    if (!navigator.onLine) return $('#avErr').textContent = '인터넷 연결이 필요합니다';
+    $('#avSave').disabled = true;
+    try {
+      const ref = F.doc(F.collection(db, 'valves'));
+      const b = F.writeBatch(db);
+      const base = { current: '미확인', status: '미조작', operatedBy: '', operatedById: '', operatedAt: null, verifiedBy: '', verifiedById: '', verifiedAt: null };
+      const st = cur ? { current: cur, status: '확인대기', operatedBy: me.name + '(수기)', operatedById: me.uid, operatedAt: F.serverTimestamp() } : {};
+      b.set(ref, { ...r, ...base, ...st, rev: 0, active: true, batch: '수기 등록', createdAt: F.serverTimestamp() });
+      const ev = { valveId: ref.id, tag: r.tag, area: r.area, userId: me.uid, userName: me.name, ts: F.serverTimestamp(), rev: 0, fromState: '', memo: '수기 등록' };
+      b.set(F.doc(F.collection(db, 'events')), { ...ev, kind: '등록', toState: r.target });
+      if (cur) b.set(F.doc(F.collection(db, 'events')), { ...ev, kind: '수기반영', fromState: '미확인', toState: cur, memo: '수기 등록 (현재상태 입력, 팀장 확인 필요)' });
+      await b.commit();
+      toast(`${r.tag} 밸브를 등록했습니다`);
+      closeDetail();
+    } catch (e) { $('#avErr').textContent = errMsg(e); $('#avSave').disabled = false; }
+  };
+};
+
 /* ---------- 현장 사진: 날짜·시간·밸브명을 사진에 새기고 압축해서 저장 ---------- */
 function loadImage(file) {
   return new Promise((ok, no) => {
@@ -605,7 +656,7 @@ function renderHist(evs) {
   $('#histList').innerHTML = shown.map(e => `<div class="box" style="padding:10px 12px;margin-bottom:6px">
     <div class="legend" style="margin:0">${esc(fmt(e.ts))} · ${esc(e.userName)}</div>
     <b>${esc(e.tag)}</b> <span class="legend">${esc(e.area)}</span><br>
-    <span class="badge b-${e.kind === '확인' ? '확인완료' : e.kind === '불일치' ? '불일치' : ['조작', '엑셀반영'].includes(e.kind) ? '확인대기' : '미조작'}">${e.kind === '사진' ? '📷 ' : ''}${esc(e.kind)}</span>
+    <span class="badge b-${e.kind === '확인' ? '확인완료' : e.kind === '불일치' ? '불일치' : ['조작', '엑셀반영', '수기반영'].includes(e.kind) ? '확인대기' : '미조작'}">${e.kind === '사진' ? '📷 ' : ''}${esc(e.kind)}</span>
     ${e.fromState || e.toState ? esc(e.fromState || '') + ' → ' + esc(e.toState || '') : ''} ${e.memo ? '· ' + esc(e.memo) : ''}</div>`).join('')
     || '<div class="box legend">아직 조작 이력이 없습니다.</div>';
 }

@@ -122,7 +122,7 @@ service cloud.firestore {
           (request.resource.data.kind in ['조작', '확인', '불일치']
             && get(valvePath()).data.rev + 1 == request.resource.data.rev
             && getAfter(valvePath()).data.rev == request.resource.data.rev)
-          || (isAdmin() && request.resource.data.kind in ['등록', '수정', '초기화', '숨김', '엑셀반영'])
+          || (isAdmin() && request.resource.data.kind in ['등록', '수정', '초기화', '숨김', '엑셀반영', '수기반영'])
           || (request.resource.data.kind == '사진'
             && exists(/databases/$(db)/documents/photos/$(request.resource.data.photoId))
               == false && existsAfter(/databases/$(db)/documents/photos/$(request.resource.data.photoId))));
