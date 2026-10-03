@@ -4,7 +4,7 @@ rules_version = '2';
 // 화면(앱)을 조작해도 서버에서 아래 규칙을 반드시 통과해야 저장됩니다.
 //  - 등록된(사용중) 사용자만 읽기/쓰기
 //  - 조작 등록은 본인 이름으로만, 확인(검증)은 '확인 권한'이 있고 조작자가 아닌 사람만
-//  - 이력(events)은 추가만 가능, 수정/삭제 불가
+//  - 이력(events)은 추가만 가능, 수정 불가, 삭제는 관리자만
 service cloud.firestore {
   match /databases/{db}/documents {
 
@@ -131,7 +131,8 @@ service cloud.firestore {
           || (request.resource.data.kind == '사진'
             && exists(/databases/$(db)/documents/photos/$(request.resource.data.photoId))
               == false && existsAfter(/databases/$(db)/documents/photos/$(request.resource.data.photoId))));
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isAdmin();   // 이력 삭제는 관리자만
     }
 
     // 현장 사진 (압축한 사진을 문서에 직접 저장 - 무료 요금제에서 사용 가능)

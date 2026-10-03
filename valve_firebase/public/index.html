@@ -94,20 +94,37 @@
         <button class="btn sec" id="exHist">전체 이력 엑셀(CSV) 받기</button>
         <button class="btn sec" id="exStatus">밸브목록 엑셀(현재상태 포함) 받기</button>
       </div>
+      <div class="box hidden" id="histAdmin">
+        <h3 style="margin-top:0">관리자: 이력 삭제</h3>
+        <p class="legend">지운 이력은 되살릴 수 없습니다. 먼저 [전체 이력 엑셀(CSV) 받기]로 보관해 두세요. 밸브의 현재상태·사진은 지워지지 않습니다.</p>
+        <div class="row"><div><label>시작일</label><input type="date" id="hdFrom"></div><div><label>종료일</label><input type="date" id="hdTo"></div></div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn sec" id="hdRange">선택 기간 이력 삭제</button>
+          <button class="btn" id="hdAll" style="background:var(--bad)">전체 이력 삭제</button></div>
+        <div class="err" id="hdErr"></div>
+        <p class="legend">아래 목록의 🗑 버튼으로 한 건씩 지울 수도 있습니다.</p>
+      </div>
       <div class="legend">최근 50건</div>
       <div id="histList"></div>
     </section>
     <section id="tAdmin" class="hidden">
       <div class="box">
         <h3 style="margin-top:0">밸브 목록 엑셀 올리기</h3>
-        <p class="legend">'밸브목록' 시트가 있는 엑셀(.xlsx/.xlsm)을 그대로 올리면 됩니다. 첫 줄 제목(기기번호, 기기명, 조작요청 내용, 밸브현재상태 …)으로 열을 찾습니다.
-          <b>밸브현재상태</b> 칸에 OPEN/CLOSE 가 있으면 앱의 현재상태로 바로 반영되고 '확인대기'가 됩니다(팀장 확인 필요).</p>
+        <div class="warn"><b>실수 없이 하는 순서</b><br>
+          ① <b>[현재 목록 양식 받기]</b> → ② 엑셀에서 수정 (2번째 줄 '예시'와 '작성방법' 시트 참고) → ③ 아래에서 파일 선택 →
+          ④ 미리보기에서 <b>새로 추가 / 엑셀에 없는 밸브</b> 목록이 맞는지 확인 → ⑤ [불러오기]</div>
+        <div class="row" style="margin:8px 0">
+          <button class="btn sec" id="tplCur">📄 현재 목록 양식 받기</button>
+          <button class="btn sec" id="tplEmpty">📄 빈 양식 받기</button></div>
+        <p class="legend">양식의 <b>앱ID</b> 열은 앱이 밸브를 구분하는 번호입니다. 그대로 두면 구역·기기명을 고쳐도 같은 밸브로 인식합니다.
+          기존 '밸브목록' 엑셀(.xlsm)을 올려도 됩니다(순번+기기명으로 찾음).</p>
         <input type="file" id="xlFile" accept=".xlsx,.xlsm,.xls,.csv">
         <label>올리는 방식</label>
         <select id="xlMode">
-          <option value="update">기존 목록 업데이트 — 같은 밸브(구역+기기명)는 내용·현재상태만 갱신, 새 밸브는 추가 (진행상황 유지)</option>
+          <option value="update">기존 목록 업데이트 — 같은 밸브는 바뀐 내용·현재상태만 갱신, 새 밸브는 추가 (진행상황 유지)</option>
           <option value="replace">새 작업으로 교체 — 지금 목록은 숨기고(이력 보존) 새로 시작</option>
         </select>
+        <label class="check" id="xlHideWrap"><input type="checkbox" id="xlHide"><span>엑셀에 없는 기존 밸브는 목록에서 숨기기 (엑셀에서 줄을 지운 경우 체크)</span></label>
         <label>메모(작업명)</label><input id="xlMemo" placeholder="예: 2026 축열조 정비">
         <div class="err" id="xlErr"></div>
         <div id="xlPreview"></div>
@@ -154,7 +171,8 @@
 <div id="photoView" class="sheet-bg hidden" style="align-items:center"><div class="sheet" style="padding:8px;border-radius:12px">
   <img id="photoImg" style="width:100%;display:block;border-radius:8px" alt="현장 사진">
   <div class="legend" id="photoCap" style="margin:6px 4px"></div>
-  <button class="btn full" id="photoClose">닫기</button></div></div>
+  <div class="row"><button class="btn hidden" id="photoDel" style="background:var(--bad)">사진 삭제(관리자)</button>
+  <button class="btn" id="photoClose">닫기</button></div></div></div>
 <div id="toast" class="toast hidden"></div>
 
 <script type="module">
@@ -427,7 +445,8 @@ async function openDetail(id) {
         <div><label>밸브명</label><input id="eTag" value="${esc(v.tag)}"></div></div>
       <label>요청사항</label><input id="eNote" value="${esc(v.note)}">
       <div class="row" style="margin-top:8px"><button class="btn sec" id="eSave">정보 저장</button>
-        <button class="btn sec" id="eReset">상태 초기화(미조작)</button></div></div>` : ''}
+        <button class="btn sec" id="eReset">상태 초기화(미조작)</button></div>
+      <button class="btn full" id="eHide" style="margin-top:8px;background:var(--bad)">이 밸브를 목록에서 삭제 (중복·잘못 등록한 경우)</button></div>` : ''}
     <div class="section"><h3>현장 사진 (${photos.length})</h3>
       <input id="phDesc" placeholder="위치 설명 (선택) 예: DH동 지하 B2 북측, 리턴헤더 위 2m">
       ${photoButtons('ph')}
@@ -450,10 +469,15 @@ async function openDetail(id) {
     try { await uploadPhoto(v, f, '', $('#phDesc').value.trim(), id === 'phCam'); toast('사진을 올렸습니다'); busy = false; openDetail(v.id); }
     catch (err) { $('#phErr').textContent = errMsg(err); busy = false; }
   });
-  $('#detailBody').querySelectorAll('.photos img').forEach(im => im.onclick = () => showPhoto(im.dataset.pid, im.title));
+  $('#detailBody').querySelectorAll('.photos img').forEach(im => im.onclick = () => showPhoto(im.dataset.pid, im.title, v));
   if (isAdmin) {
     $('#eSave').onclick = () => adminEdit(v, { target: $('#eTarget').value, pid: $('#ePid').value.trim(), area: $('#eArea').value.trim(), tag: $('#eTag').value.trim(), note: $('#eNote').value.trim() });
     $('#eReset').onclick = () => confirm(`${v.tag} 상태를 '미확인/미조작'으로 초기화할까요? (이력은 남습니다)`) && adminEdit(v, null);
+    $('#eHide').onclick = async () => {
+      if (!confirm(`${v.area} / ${v.tag} 를 목록에서 삭제할까요?\n(기록 보관을 위해 숨김 처리되며, 이력은 남습니다)`)) return;
+      try { await changeValve(v, () => ({ active: false }), { kind: '숨김', memo: '관리자가 목록에서 삭제' }); toast('목록에서 삭제했습니다'); closeDetail(); }
+      catch (e) { toast(errMsg(e)); }
+    };
   }
 }
 function closeDetail() { $('#detail').classList.add('hidden'); openId = null; busy = false; }
@@ -669,8 +693,20 @@ async function uploadPhoto(v, file, label, desc, fromCam) {
   b.update(F.doc(db, 'valves', v.id), { photoCount: F.increment(1) });   // 목록의 📷 개수
   await b.commit();
 }
-async function showPhoto(pid, caption) {
+async function showPhoto(pid, caption, v) {
   $('#photoImg').src = ''; $('#photoCap').textContent = '불러오는 중...'; $('#photoView').classList.remove('hidden');
+  $('#photoDel').classList.toggle('hidden', me.role !== 'admin');
+  $('#photoDel').onclick = async () => {
+    if (!confirm('이 사진을 삭제할까요? 되살릴 수 없습니다.')) return;
+    try {
+      const b = F.writeBatch(db);
+      b.delete(F.doc(db, 'photos', pid)); b.delete(F.doc(db, 'photoFull', pid));
+      const cur = valves.find(x => x.id === v.id);
+      if (cur) b.update(F.doc(db, 'valves', v.id), { photoCount: Math.max(0, (cur.photoCount || 1) - 1), rev: cur.rev + 1 });
+      await b.commit();
+      $('#photoView').classList.add('hidden'); toast('사진을 삭제했습니다'); busy = false; openDetail(v.id);
+    } catch (e) { toast(errMsg(e)); }
+  };
   try {
     const s = await F.getDoc(F.doc(db, 'photoFull', pid));
     $('#photoImg').src = s.data().data; $('#photoCap').textContent = caption;
@@ -708,13 +744,41 @@ async function adminEdit(v, fields) {
 /* ---------- 이력 ---------- */
 function renderHist(evs) {
   const shown = evs.filter(e => e.kind !== '등록');
-  $('#histList').innerHTML = shown.map(e => `<div class="box" style="padding:10px 12px;margin-bottom:6px">
+  const adm = me && me.role === 'admin';
+  $('#histAdmin').classList.toggle('hidden', !adm);
+  $('#histList').innerHTML = shown.map(e => `<div class="box" style="padding:10px 12px;margin-bottom:6px;position:relative">
+    ${adm ? `<button class="btn sec" data-del="${e.id}" style="position:absolute;right:8px;top:8px;padding:4px 8px">🗑</button>` : ''}
     <div class="legend" style="margin:0">${esc(fmt(e.ts))} · ${esc(e.userName)}</div>
     <b>${esc(e.tag)}</b> <span class="legend">${esc(e.area)}</span><br>
     <span class="badge b-${e.kind === '확인' ? '확인완료' : e.kind === '불일치' ? '불일치' : ['조작', '엑셀반영', '수기반영'].includes(e.kind) ? '확인대기' : '미조작'}">${e.kind === '사진' ? '📷 ' : ''}${esc(e.kind)}</span>
     ${e.fromState || e.toState ? esc(e.fromState || '') + ' → ' + esc(e.toState || '') : ''} ${e.memo ? '· ' + esc(e.memo) : ''}</div>`).join('')
     || '<div class="box legend">아직 조작 이력이 없습니다.</div>';
+  $('#histList').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    if (!confirm('이 이력 1건을 삭제할까요?')) return;
+    try { await F.deleteDoc(F.doc(db, 'events', b.dataset.del)); toast('삭제했습니다'); } catch (e) { toast(errMsg(e)); }
+  });
 }
+async function deleteEvents(q, label) {
+  $('#hdErr').textContent = '';
+  try {
+    const snap = await F.getDocs(q);
+    if (!snap.size) return $('#hdErr').textContent = '지울 이력이 없습니다';
+    const typed = prompt(`${label} 이력 ${snap.size}건을 삭제합니다. 되살릴 수 없습니다.\n계속하려면 '삭제' 라고 입력하세요.`);
+    if (typed !== '삭제') return;
+    for (let i = 0; i < snap.docs.length; i += 400) {
+      const b = F.writeBatch(db); snap.docs.slice(i, i + 400).forEach(d => b.delete(d.ref)); await b.commit();
+    }
+    toast(`이력 ${snap.size}건을 삭제했습니다`);
+  } catch (e) { $('#hdErr').textContent = errMsg(e); }
+}
+$('#hdAll').onclick = () => deleteEvents(F.collection(db, 'events'), '전체');
+$('#hdRange').onclick = () => {
+  const f = $('#hdFrom').value, t = $('#hdTo').value;
+  if (!f || !t) return $('#hdErr').textContent = '시작일과 종료일을 고르세요';
+  const from = new Date(f + 'T00:00:00'), to = new Date(t + 'T23:59:59');
+  if (from > to) return $('#hdErr').textContent = '시작일이 종료일보다 늦습니다';
+  deleteEvents(F.query(F.collection(db, 'events'), F.where('ts', '>=', F.Timestamp.fromDate(from)), F.where('ts', '<=', F.Timestamp.fromDate(to))), `${f} ~ ${t}`);
+};
 function downloadCsv(name, header, rows) {
   const q = x => { const s = String(x ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const text = '﻿' + [header, ...rows].map(r => r.map(q).join(',')).join('\r\n');
@@ -729,23 +793,59 @@ $('#exHist').onclick = async () => {
       s.docs.map(d => d.data()).map(e => [fmt(e.ts), e.area, e.tag, e.kind, e.fromState, e.toState, e.userName, e.memo]));
   } catch (e) { toast(errMsg(e)); }
 };
-// 밸브목록 시트와 같은 열 순서로 내려받기 (현재상태 포함) → 수정해서 다시 올릴 수 있음
-$('#exStatus').onclick = async () => {
+// 밸브목록 양식(예시 줄 + 작성방법 시트) 만들기. withData=true 면 현재 목록을 채워서
+const TPL_HEAD = ['순번', '발행상태', '도면번호', '기기번호(구역)', '기기명(*)', '조작요청 내용(*)', '요청사항', '작업책임자(*)', '밸브현재상태',
+  '개방일시', '개방시간', '투입일시', '투입시간', '취소요청사유', '도면', '도면 위치(클릭)', '비고(도면 대조)', '앱ID(수정금지)',
+  '(참고) 검증', '(참고) 조작자', '(참고) 조작일시', '(참고) 확인자', '(참고) 확인일시'];
+const TPL_EXAMPLE = ['예시', '', '2M-PI-131-001', 'DH PUMP#1', 'HV-301', 'CLOSE', '폐수이송후CLOSE', '박성관', 'CLOSE',
+  '2026-09-29', '09:00', '2026-10-16', '18:00', '', 'P1_축열조가압', 'P1_축열조가압!BL34', '도면 표기 다름', '(새 밸브는 비워두기)',
+  '← 이 줄은 예시입니다. 순번 칸이 "예시"인 줄은 올릴 때 무시됩니다.'];
+const TPL_GUIDE = [
+  ['밸브목록 엑셀 작성방법'], [],
+  ['열', '필수', '쓰는 법', '예시'],
+  ['순번', '선택', '숫자. 화면 정렬 순서. 비우면 자동 번호', '10'],
+  ['발행상태', '-', '앱에서 사용하지 않음', ''],
+  ['도면번호', '선택', '도면(P&ID) 번호', '2M-PI-131-001'],
+  ['기기번호(구역)', '필수', '밸브가 있는 구역. 같은 구역은 글자를 똑같이 (띄어쓰기·대소문자 주의)', 'DH PUMP#1'],
+  ['기기명(*)', '필수', '밸브 태그명. 같은 구역 안에서 중복 금지', 'HV-301'],
+  ['조작요청 내용(*)', '필수', 'OPEN 또는 CLOSE 만 (CLOE 같은 오타는 자동 수정되지만 확인 필요)', 'CLOSE'],
+  ['요청사항', '선택', '조작 시 주의사항', '폐수이송후CLOSE'],
+  ['작업책임자(*)', '선택', '작업 책임자 이름', '박성관'],
+  ['밸브현재상태', '선택', 'OPEN/CLOSE 를 쓰면 앱의 현재상태가 바뀌고 "확인대기"(팀장 확인 필요)가 됨. 모르면 비워두기 → 앱 상태 그대로 유지', 'CLOSE'],
+  ['개방일시 / 개방시간', '선택', '날짜 2026-09-29 / 시간 09:00', '2026-09-29 / 09:00'],
+  ['투입일시 / 투입시간', '선택', '날짜 / 시간', '2026-10-16 / 18:00'],
+  ['취소요청사유', '-', '앱에서 사용하지 않음', ''],
+  ['도면 / 도면 위치 / 비고', '선택', '밸브 상세 화면에 함께 표시', ''],
+  ['앱ID(수정금지)', '자동', '앱이 밸브를 구분하는 번호. 절대 고치거나 지우지 마세요. 새로 추가하는 밸브는 비워두기. 이 번호가 있으면 구역·기기명을 고쳐도 같은 밸브로 인식', ''],
+  ['(참고) 검증 ~ 확인일시', '-', '내려받을 때 참고용. 올릴 때는 무시됨', ''],
+  [], ['꼭 지킬 것'],
+  ['1', '시트 이름 "밸브목록"과 1번째 줄(제목)은 바꾸지 마세요.'],
+  ['2', '2번째 줄(예시)은 지우지 않아도 됩니다. 순번 칸이 "예시"면 무시됩니다.'],
+  ['3', '밸브를 빼려면 줄을 지우고, 올릴 때 "엑셀에 없는 기존 밸브는 숨기기"를 체크하세요.'],
+  ['4', '구역을 고칠 때는 앱ID를 그대로 두세요. 그래야 같은 밸브로 인식되어 진행상황·사진·이력이 유지됩니다.'],
+  ['5', '올리기 전 미리보기의 "새로 추가" / "엑셀에 없는 밸브" 목록이 의도와 같은지 꼭 확인하세요.'],
+  ['6', '올리는 방식은 보통 "기존 목록 업데이트". "새 작업으로 교체"는 완전히 새 작업을 시작할 때만.'],
+];
+async function downloadTemplate(withData) {
   try {
     await loadXlsxLib();
     const split = t => { const m = String(t || '').match(/^(\S+)\s+(\S+)$/); return m ? [m[1], m[2]] : [t || '', '']; };
-    const head = ['순번', '발행상태', '도면번호', '기기번호', '기기명(*)', '조작요청 내용(*)', '요청사항', '작업책임자(*)', '밸브현재상태',
-      '개방일시', '', '투입일시', '', '취소요청사유', '도면', '도면 위치(클릭)', '비고(도면 대조)', '검증', '조작자', '조작일시', '확인자', '확인일시'];
-    const rows = valves.map(v => [v.seq, '', v.pid, v.area, v.tag, v.target, v.note, v.owner, isState(v.current) ? v.current : '',
-      ...split(v.workStart), ...split(v.workEnd), '', v.drawing || '', v.drawingLoc || '', v.remark || '',
-      v.status, v.operatedBy, fmt(v.operatedAt), v.verifiedBy, fmt(v.verifiedAt)]);
-    const ws = XLSX.utils.aoa_to_sheet([head, ...rows]);
-    ws['!cols'] = head.map((h, i) => ({ wch: [4, 8].includes(i) ? 22 : 12 }));
-    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '밸브목록');
-    const d = new Date();
-    XLSX.writeFile(wb, `밸브목록_현재상태_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.xlsx`);
+    const rows = withData ? valves.map(v => [v.seq, '', v.pid, v.area, v.tag, v.target, v.note, v.owner, isState(v.current) ? v.current : '',
+      ...split(v.workStart), ...split(v.workEnd), '', v.drawing || '', v.drawingLoc || '', v.remark || '', v.id,
+      v.status, v.operatedBy, fmt(v.operatedAt), v.verifiedBy, fmt(v.verifiedAt)]) : [];
+    const ws = XLSX.utils.aoa_to_sheet([TPL_HEAD, TPL_EXAMPLE, ...rows]);
+    ws['!cols'] = TPL_HEAD.map((h, i) => ({ wch: [3, 4, 6, 16, 17].includes(i) ? 22 : i >= 18 ? 14 : 12 }));
+    const gs = XLSX.utils.aoa_to_sheet(TPL_GUIDE);
+    gs['!cols'] = [{ wch: 24 }, { wch: 8 }, { wch: 90 }, { wch: 20 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '밸브목록'); XLSX.utils.book_append_sheet(wb, gs, '작성방법');
+    const d = new Date(), stampStr = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+    XLSX.writeFile(wb, withData ? `밸브목록_현재_${stampStr}.xlsx` : '밸브목록_빈양식.xlsx');
   } catch (e) { toast(errMsg(e)); }
-};
+}
+$('#exStatus').onclick = () => downloadTemplate(true);
+$('#tplCur').onclick = () => downloadTemplate(true);
+$('#tplEmpty').onclick = () => downloadTemplate(false);
 const isState = x => x === 'OPEN' || x === 'CLOSE';
 
 /* ---------- 관리자: 사용자 ---------- */
@@ -830,14 +930,35 @@ function mapColumns(head) {
     drawing: h.indexOf('도면'),
     drawingLoc: find('도면위치'),
     remark: find('비고'),
+    appId: find('앱ID'),
   };
   if (c.pid < 0 && h.indexOf('S') >= 0 && find('순번') >= 0) c.pid = find('순번');   // 예전 양식: '순번' 열에 도면번호
-  c.startT = c.start >= 0 && !h[c.start + 1] ? c.start + 1 : -1;   // 바로 옆 제목 없는 칸 = 시간
-  c.endT = c.end >= 0 && !h[c.end + 1] ? c.end + 1 : -1;
+  // 시간 칸: '개방시간' 제목이 있으면 그 열, 없으면 날짜 바로 옆 제목 없는 칸
+  c.startT = find('개방시간') >= 0 ? find('개방시간') : c.start >= 0 && !h[c.start + 1] ? c.start + 1 : -1;
+  c.endT = find('투입시간') >= 0 ? find('투입시간') : c.end >= 0 && !h[c.end + 1] ? c.end + 1 : -1;
   return c;
 }
 $('#xlFile').onchange = previewExcel;
 $('#xlMode').onchange = previewExcel;
+const normTag = t => String(t || '').toUpperCase().replace(/\s/g, '');
+// 엑셀 줄 ↔ 앱 밸브 짝짓기: ① 앱ID ② 구역+기기명 ③ 순번+기기명(구역을 고친 경우) ④ 기기명이 하나뿐인 경우
+function matchRows(rows) {
+  const pool = new Map(valves.map(v => [v.id, v]));
+  const res = rows.map(r => ({ r, v: null, how: '' }));
+  const take = (x, v, how) => { x.v = v; x.how = how; pool.delete(v.id); };
+  const free = () => [...pool.values()];
+  res.forEach(x => { if (x.r.appId && pool.has(x.r.appId)) take(x, pool.get(x.r.appId), 'ID'); });
+  res.forEach(x => { if (!x.v) { const v = free().find(v => keyOf(v.area, v.tag) === keyOf(x.r.area, x.r.tag)); if (v) take(x, v, '구역+기기명'); } });
+  res.forEach(x => { if (!x.v) { const v = free().find(v => +v.seq === +x.r.seq && normTag(v.tag) === normTag(x.r.tag)); if (v) take(x, v, '순번+기기명'); } });
+  res.forEach(x => {
+    if (x.v) return;
+    const c = free().filter(v => normTag(v.tag) === normTag(x.r.tag));
+    const same = res.filter(y => !y.v && normTag(y.r.tag) === normTag(x.r.tag)).length;
+    if (c.length === 1 && same === 1) take(x, c[0], '기기명');
+  });
+  return { res, missing: free() };
+}
+const diffInfo = (v, r) => INFO.filter(k => String(v[k] ?? '') !== String(r[k] ?? ''));
 async function previewExcel() {
   $('#xlErr').textContent = ''; $('#xlPreview').innerHTML = ''; parsed = null;
   const f = $('#xlFile').files[0]; if (!f) return;
@@ -855,7 +976,9 @@ async function previewExcel() {
       const rec = { seq: g(r, c.seq), area: g(r, c.area), tag: g(r, c.tag), pid: g(r, c.pid), note: g(r, c.note),
         owner: g(r, c.owner), phone: g(r, c.phone), drawing: g(r, c.drawing), drawingLoc: g(r, c.drawingLoc), remark: g(r, c.remark),
         workStart: (g(r, c.start) + ' ' + g(r, c.startT)).trim(), workEnd: (g(r, c.end) + ' ' + g(r, c.endT)).trim() };
-      if (!rec.tag) return;
+      if (!rec.tag || /^예시/.test(g(r, c.seq))) return;   // 빈 줄, 예시 줄은 건너뜀
+      rec.appId = g(r, c.appId);
+      if (!rec.area) warns.push(`${rowNo}행: 기기번호(구역)가 비어 있음`);
       rec.target = normState(g(r, c.target), rowNo, warns);
       const cur = g(r, c.cur);
       rec.cur = cur ? normState(cur, rowNo, warns) : '';
@@ -868,11 +991,19 @@ async function previewExcel() {
     parsed = out;
     const cnt = s => out.filter(x => x.target === s).length;
     let plan = '';
+    const dup = new Map(); out.forEach(x => { const k = keyOf(x.area, x.tag); dup.set(k, (dup.get(k) || 0) + 1); });
+    [...dup].filter(([, n]) => n > 1).forEach(([k]) => warns.push(`같은 구역+기기명이 엑셀에 여러 번: ${k.replace('|', ' / ')}`));
+    $('#xlHideWrap').classList.toggle('hidden', $('#xlMode').value !== 'update');
     if ($('#xlMode').value === 'update') {
-      const exist = new Set(valves.map(v => keyOf(v.area, v.tag)));
-      const match = out.filter(x => exist.has(keyOf(x.area, x.tag))).length;
-      const inXl = new Set(out.map(x => keyOf(x.area, x.tag)));
-      plan = `<br>→ 같은 밸브 <b>${match}</b>개(바뀐 내용만 갱신) · 새로 추가 <b>${out.length - match}</b>개 · 엑셀에 없는 기존 밸브 ${valves.filter(v => !inXl.has(keyOf(v.area, v.tag))).length}개(그대로 둠)`;
+      const { res, missing } = matchRows(out);
+      const by = h => res.filter(x => x.how === h).length;
+      const news = res.filter(x => !x.v), changed = res.filter(x => x.v && diffInfo(x.v, x.r).length);
+      const moved = res.filter(x => x.v && keyOf(x.v.area, x.v.tag) !== keyOf(x.r.area, x.r.tag));
+      const li = arr => arr.slice(0, 15).map(t => '· ' + esc(t)).join('<br>') + (arr.length > 15 ? `<br>· … 외 ${arr.length - 15}개` : '');
+      plan = `<br>→ 같은 밸브 <b>${res.length - news.length}</b>개 (앱ID ${by('ID')} · 구역+기기명 ${by('구역+기기명')} · 순번+기기명 ${by('순번+기기명')} · 기기명 ${by('기기명')}) 중 내용 바뀜 <b>${changed.length}</b>개`
+        + (moved.length ? `<br><b>구역/기기명 변경 ${moved.length}개</b> (같은 밸브로 인식, 진행상황 유지):<br>${li(moved.map(x => `${x.v.area} / ${x.v.tag} → ${x.r.area} / ${x.r.tag}`))}` : '')
+        + `<br><b style="color:var(--bad)">새로 추가 ${news.length}개</b>${news.length ? ':<br>' + li(news.map(x => `${x.r.seq}. ${x.r.area} / ${x.r.tag}`)) : ''}`
+        + `<br><b style="color:var(--bad)">엑셀에 없는 기존 밸브 ${missing.length}개</b>${missing.length ? ' (숨기기 체크 안 하면 그대로 둠):<br>' + li(missing.map(v => `${v.seq}. ${v.area} / ${v.tag}`)) : ''}`;
     } else plan = `<br>→ 지금 목록 ${valves.length}개를 숨기고 새로 ${out.length}개 등록`;
     $('#xlPreview').innerHTML = `<div class="warn">'${esc(sheetName)}' 시트 · 밸브 <b>${out.length}</b>개 (요구 OPEN ${cnt('OPEN')}, CLOSE ${cnt('CLOSE')}) · 구역 ${new Set(out.map(x => x.area)).size}곳
       · 밸브현재상태 입력 <b>${out.filter(x => x.cur).length}</b>개${plan}
@@ -897,13 +1028,19 @@ $('#xlBtn').onclick = async () => {
   const ev = (vid, r, kind, extra) => b => b.set(F.doc(F.collection(db, 'events')), { valveId: vid, tag: r.tag, area: r.area, kind,
     userId: me.uid, userName: me.name, ts: F.serverTimestamp(), rev: 0, fromState: '', toState: '', memo, ...extra });
   try {
-    const ops = []; let nNew = 0, nUpd = 0, nState = 0;
-    const byKey = new Map();
-    if (mode === 'update') valves.forEach(v => { const k = keyOf(v.area, v.tag); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(v); });
-    else valves.forEach(v => ops.push(b => b.update(F.doc(db, 'valves', v.id), { active: false, rev: v.rev + 1 })));
+    const ops = []; let nNew = 0, nUpd = 0, nState = 0, nHide = 0;
+    const matched = new Map();
+    if (mode === 'update') {
+      const { res, missing } = matchRows(parsed);
+      res.forEach(x => x.v && matched.set(x.r, x.v));
+      if ($('#xlHide').checked) missing.forEach(v => {
+        ops.push(b => b.update(F.doc(db, 'valves', v.id), { active: false, rev: v.rev + 1 }));
+        ops.push(ev(v.id, v, '숨김', { memo: memo + ' (엑셀에 없어 목록에서 숨김)' })); nHide++;
+      });
+    } else valves.forEach(v => ops.push(b => b.update(F.doc(db, 'valves', v.id), { active: false, rev: v.rev + 1 })));
     for (const r of parsed) {
-      const { cur, ...info } = r;
-      const v = mode === 'update' ? byKey.get(keyOf(r.area, r.tag))?.shift() : null;
+      const { cur, appId, ...info } = r;
+      const v = matched.get(r) || null;
       if (!v) {   // 새 밸브
         const ref = F.doc(F.collection(db, 'valves'));
         const base = { current: '미확인', status: '미조작', operatedBy: '', operatedById: '', operatedAt: null, verifiedBy: '', verifiedById: '', verifiedAt: null };
@@ -924,7 +1061,7 @@ $('#xlBtn').onclick = async () => {
     for (let i = 0; i < ops.length; i += 200) {
       const b = F.writeBatch(db); ops.slice(i, i + 200).forEach(op => op(b)); await b.commit();
     }
-    toast(mode === 'update' ? `갱신 ${nUpd}개 · 추가 ${nNew}개 · 현재상태 반영 ${nState}개` : `밸브 ${parsed.length}개를 불러왔습니다 (현재상태 반영 ${nState}개)`, 6000);
+    toast(mode === 'update' ? `갱신 ${nUpd}개 · 추가 ${nNew}개 · 현재상태 반영 ${nState}개${nHide ? ` · 숨김 ${nHide}개` : ''}` : `밸브 ${parsed.length}개를 불러왔습니다 (현재상태 반영 ${nState}개)`, 6000);
     parsed = null; $('#xlFile').value = ''; $('#xlPreview').innerHTML = '';
   } catch (e) { $('#xlErr').textContent = errMsg(e) + ' — 다른 사람이 동시에 바꿨을 수 있습니다. 화면을 새로고침 후 다시 올려주세요.'; }
   finally { $('#xlBtn').disabled = false; }
