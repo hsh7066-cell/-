@@ -290,10 +290,33 @@ $('#pwBtn').onclick = async () => {
 };
 
 /* ---------- 메뉴 / 탭 ---------- */
-$('#menuBtn').onclick = () => { $('#menuInfo').textContent = `${me.name} (${me.login}) · ${me.role === 'admin' ? '관리자' : '일반'}`; $('#menu').classList.remove('hidden'); };
-$('#mClose').onclick = () => $('#menu').classList.add('hidden');
-$('#mPw').onclick = () => { $('#menu').classList.add('hidden'); showPw(false); };
-$('#mOut').onclick = () => { $('#menu').classList.add('hidden'); F.signOut(auth); };
+/* ---------- 열린 창(밸브 상세·사진·메뉴)과 휴대폰 '뒤로가기' ----------
+   창을 열 때 브라우저 방문 기록에 한 칸 쌓아 두면, 갤럭시 뒤로가기 버튼이나 아이폰 밀어서 뒤로가기를 해도
+   앱이 꺼지지 않고 맨 위 창만 닫힙니다. */
+const sheetStack = [];
+function openSheet(id) {
+  const el = $('#' + id);
+  if (!el.classList.contains('hidden')) return;
+  el.classList.remove('hidden');
+  sheetStack.push(id);
+  history.pushState({ sheet: id }, '');
+}
+function hideSheet(id) {
+  $('#' + id).classList.add('hidden');
+  const i = sheetStack.lastIndexOf(id); if (i >= 0) sheetStack.splice(i, 1);
+  if (id === 'detail') { openId = null; busy = false; }
+}
+function closeSheet(id) {
+  if ($('#' + id).classList.contains('hidden')) return;
+  if (sheetStack[sheetStack.length - 1] === id) history.back();   // popstate 에서 닫힘
+  else hideSheet(id);
+}
+window.addEventListener('popstate', () => { const top = sheetStack[sheetStack.length - 1]; if (top) hideSheet(top); });
+
+$('#menuBtn').onclick = () => { $('#menuInfo').textContent = `${me.name} (${me.login}) · ${me.role === 'admin' ? '관리자' : '일반'}`; openSheet('menu'); };
+$('#mClose').onclick = () => closeSheet('menu');
+$('#mPw').onclick = () => { closeSheet('menu'); showPw(false); };
+$('#mOut').onclick = () => { closeSheet('menu'); F.signOut(auth); };
 document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav.tabs button').forEach(x => x.classList.toggle('on', x === b));
   ['list', 'hist', 'admin'].forEach(t => $('#t' + t[0].toUpperCase() + t.slice(1)).classList.toggle('hidden', b.dataset.tab !== t));
@@ -460,7 +483,7 @@ async function openDetail(id) {
         <b>${esc(e.kind)}</b> ${e.fromState || e.toState ? esc(e.fromState || '') + ' → ' + esc(e.toState || '') : ''}
         ${e.memo ? '<div>' + esc(e.memo) + '</div>' : ''}</div>`).join('') || '<div class="legend">이력 없음</div>'}
     </div>`;
-  $('#detail').classList.remove('hidden');
+  openSheet('detail');
   $('#dClose').onclick = closeDetail;
   $('#detailBody').querySelectorAll('.ops button').forEach(b => b.onclick = () => confirmOperate(v, b.dataset.s));
   if (canVerify && !mine && iCanVerify) { $('#vOk').onclick = () => doVerify(v, true); $('#vNg').onclick = () => doVerify(v, false); }
@@ -481,7 +504,7 @@ async function openDetail(id) {
     };
   }
 }
-function closeDetail() { $('#detail').classList.add('hidden'); openId = null; busy = false; }
+function closeDetail() { closeSheet('detail'); openId = null; busy = false; }
 $('#detail').onclick = e => { if (e.target.id === 'detail') closeDetail(); };
 
 class Conflict extends Error {}
@@ -568,7 +591,7 @@ $('#addValveBtn').onclick = () => {
     <p class="legend">현재상태를 OPEN/CLOSE 로 넣으면 '확인대기'로 등록되어 팀장 확인이 필요합니다.</p>
     <div class="err" id="avErr"></div>
     <button class="btn full" id="avSave">등록</button>`;
-  $('#detail').classList.remove('hidden');
+  openSheet('detail');
   $('#avClose').onclick = closeDetail;
   $('#avSave').onclick = async () => {
     const r = { seq: +$('#avSeq').value || nextSeq, area: $('#avArea').value.trim(), tag: $('#avTag').value.trim(), pid: $('#avPid').value.trim(),
@@ -695,7 +718,7 @@ async function uploadPhoto(v, file, label, desc, fromCam) {
   await b.commit();
 }
 async function showPhoto(pid, caption, v) {
-  $('#photoImg').src = ''; $('#photoCap').textContent = '불러오는 중...'; $('#photoView').classList.remove('hidden');
+  $('#photoImg').src = ''; $('#photoCap').textContent = '불러오는 중...'; openSheet('photoView');
   $('#photoDel').classList.toggle('hidden', me.role !== 'admin');
   $('#photoDel').onclick = async () => {
     if (!confirm('이 사진을 삭제할까요? 되살릴 수 없습니다.')) return;
@@ -705,7 +728,7 @@ async function showPhoto(pid, caption, v) {
       const cur = valves.find(x => x.id === v.id);
       if (cur) b.update(F.doc(db, 'valves', v.id), { photoCount: Math.max(0, (cur.photoCount || 1) - 1), rev: cur.rev + 1 });
       await b.commit();
-      $('#photoView').classList.add('hidden'); toast('사진을 삭제했습니다'); busy = false; openDetail(v.id);
+      closeSheet('photoView'); toast('사진을 삭제했습니다'); busy = false; openDetail(v.id);
     } catch (e) { toast(errMsg(e)); }
   };
   try {
@@ -713,7 +736,8 @@ async function showPhoto(pid, caption, v) {
     $('#photoImg').src = s.data().data; $('#photoCap').textContent = caption;
   } catch (e) { $('#photoCap').textContent = errMsg(e); }
 }
-$('#photoClose').onclick = () => $('#photoView').classList.add('hidden');
+$('#photoClose').onclick = () => closeSheet('photoView');
+$('#photoView').onclick = e => { if (e.target.id === 'photoView') closeSheet('photoView'); };
 
 async function doVerify(v, ok) {
   const memo = $('#vMemo').value.trim();
