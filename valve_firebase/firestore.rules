@@ -106,7 +106,12 @@ service cloud.firestore {
         && ((request.resource.data.status == '미조작' && request.resource.data.current == '미확인')
             || isExcelState(request.resource.data))
         && request.resource.data.rev == 0 && request.resource.data.active == true;
-      allow update: if isOperate() || isVerify() || isAdminEdit();
+      // 사진 추가 시 목록의 📷 개수만 1 올림
+      function isPhotoCount() {
+        return isActive() && resource.data.active == true && onlyChanged(['photoCount'])
+          && request.resource.data.photoCount == resource.data.get('photoCount', 0) + 1;
+      }
+      allow update: if isOperate() || isVerify() || isAdminEdit() || isPhotoCount();
       allow delete: if false;
     }
 

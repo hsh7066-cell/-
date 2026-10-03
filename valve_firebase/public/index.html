@@ -353,7 +353,7 @@ function render() {
   for (const v of list) {
     if (v.area !== lastArea) { html += `<div class="area">${esc(v.area || '구역 없음')}</div>`; lastArea = v.area; }
     html += `<div class="valve ${cls(v)} ${flashIds.has(v.id) ? 'flash' : ''}" data-id="${v.id}">
-      <div class="main"><div class="tag">${esc(v.seq)}. ${esc(v.tag)}</div>
+      <div class="main"><div class="tag">${esc(v.seq)}. ${esc(v.tag)}${v.photoCount ? `<span class="cam">📷${v.photoCount}</span>` : ''}</div>
         <div class="sub"><span class="badge b-${esc(v.status)}">${esc(v.status)}</span>
           ${v.operatedBy ? esc(v.operatedBy) + ' ' + esc(fmt(v.operatedAt).slice(5, 16)) : ''}${v.note ? ' · ' + esc(v.note) : ''}</div></div>
       <div class="states"><span>요구 <span class="st outline ${esc(v.target)}">${esc(v.target || '-')}</span></span>
@@ -429,10 +429,11 @@ async function openDetail(id) {
       <div class="row" style="margin-top:8px"><button class="btn sec" id="eSave">정보 저장</button>
         <button class="btn sec" id="eReset">상태 초기화(미조작)</button></div></div>` : ''}
     <div class="section"><h3>현장 사진 (${photos.length})</h3>
-      <label class="photo-btn">📷 사진 추가 (촬영 날짜·시간이 사진에 자동 표시)
-        <input type="file" id="phAdd" accept="image/*" capture="environment" class="hidden"></label>
+      <input id="phDesc" placeholder="위치 설명 (선택) 예: DH동 지하 B2 북측, 리턴헤더 위 2m">
+      ${photoButtons('ph')}
       <div class="err" id="phErr"></div>
-      <div class="photos">${photos.map(p => `<img src="${p.thumb}" data-pid="${p.id}" alt="사진" title="${esc(p.caption)}">`).join('')}</div>
+      <div class="photos">${photos.map(p => `<figure><img src="${p.thumb}" data-pid="${p.id}" alt="사진" title="${esc(p.caption)}">
+        <figcaption>${esc(fmt(new Date(p.takenAt)).slice(5, 16))}${p.desc ? '<br>' + esc(p.desc) : ''}</figcaption></figure>`).join('')}</div>
     </div>
     <div class="section"><h3>이 밸브의 이력</h3>
       ${hist.map(e => `<div class="hist"><div class="t">${esc(fmt(e.ts))} · ${esc(e.userName)}</div>
@@ -443,12 +444,12 @@ async function openDetail(id) {
   $('#dClose').onclick = closeDetail;
   $('#detailBody').querySelectorAll('.ops button').forEach(b => b.onclick = () => confirmOperate(v, b.dataset.s));
   if (canVerify && !mine && iCanVerify) { $('#vOk').onclick = () => doVerify(v, true); $('#vNg').onclick = () => doVerify(v, false); }
-  $('#phAdd').onchange = async e => {
+  ['phCam', 'phAlbum'].forEach(id => $('#' + id).onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     busy = true; $('#phErr').textContent = '사진 올리는 중...';
-    try { await uploadPhoto(v, f, ''); toast('사진을 올렸습니다'); busy = false; openDetail(v.id); }
+    try { await uploadPhoto(v, f, '', $('#phDesc').value.trim(), id === 'phCam'); toast('사진을 올렸습니다'); busy = false; openDetail(v.id); }
     catch (err) { $('#phErr').textContent = errMsg(err); busy = false; }
-  };
+  });
   $('#detailBody').querySelectorAll('.photos img').forEach(im => im.onclick = () => showPhoto(im.dataset.pid, im.title));
   if (isAdmin) {
     $('#eSave').onclick = () => adminEdit(v, { target: $('#eTarget').value, pid: $('#ePid').value.trim(), area: $('#eArea').value.trim(), tag: $('#eTag').value.trim(), note: $('#eNote').value.trim() });
@@ -487,18 +488,19 @@ function confirmOperate(v, state) {
     <label class="check"><input type="checkbox" id="c2"><span>밸브를 실제로 <b>${state}</b> 했습니다.</span></label>
     <label>메모 (선택)</label><input id="opMemo" placeholder="예: 핸들 잠금장치 설치">
     <label>현장 사진 (선택, 권장)</label>
-    <label class="photo-btn">📷 사진 찍기 — 날짜·시간·밸브명이 사진에 자동 표시됩니다
-      <input type="file" id="opPhoto" accept="image/*" capture="environment" class="hidden"></label>
+    ${photoButtons('op')}
+    <input id="opDesc" placeholder="위치 설명 (선택) 예: 보일러#3 후면 2층 계단 옆" style="margin-top:6px">
+    <div class="legend">날짜·시간·밸브명이 사진에 자동으로 표시됩니다</div>
     <img id="opPrev" class="photo-prev hidden" alt="미리보기">
     <div class="err" id="opErr"></div>
     <div class="row"><button class="btn sec" id="opBack">취소</button><button class="btn" id="opGo" disabled>등록</button></div>`;
   const upd = () => $('#opGo').disabled = !($('#c1').checked && $('#c2').checked);
   $('#c1').onchange = upd; $('#c2').onchange = upd;
-  let photo = null;
-  $('#opPhoto').onchange = e => {
-    photo = e.target.files[0] || null;
+  let photo = null, fromCam = false;
+  ['opCam', 'opAlbum'].forEach(id => $('#' + id).onchange = e => {
+    photo = e.target.files[0] || null; fromCam = id === 'opCam';
     if (photo) { $('#opPrev').src = URL.createObjectURL(photo); $('#opPrev').classList.remove('hidden'); }
-  };
+  });
   $('#opBack').onclick = () => { busy = false; openDetail(v.id); };
   $('#opGo').onclick = async () => {
     $('#opGo').disabled = true;
@@ -508,7 +510,7 @@ function confirmOperate(v, state) {
         { kind: '조작', fromState: v.current, toState: state, memo: $('#opMemo').value.trim() });
       if (photo) {
         $('#opErr').textContent = '사진 올리는 중...';
-        try { await uploadPhoto(v, photo, state + ' 조작'); }
+        try { await uploadPhoto(v, photo, state + ' 조작', $('#opDesc').value.trim(), fromCam); }
         catch (pe) { toast('조작은 등록됐지만 사진 올리기에 실패했습니다: ' + errMsg(pe), 6000); }
       }
       toast(`${v.tag} → ${state} 등록됨. 팀장 확인이 필요합니다.`);
@@ -584,19 +586,70 @@ function drawScaled(img, maxDim) {
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
   return c;
 }
+// 📷 지금 촬영 / 🖼 앨범에서 선택 버튼
+function photoButtons(prefix) {
+  return `<div class="photo-row">
+    <label class="photo-btn">📷 지금 촬영<input type="file" id="${prefix}Cam" accept="image/*" capture="environment" class="hidden"></label>
+    <label class="photo-btn">🖼 앨범에서 선택<input type="file" id="${prefix}Album" accept="image/*" class="hidden"></label></div>`;
+}
+// 사진 파일 안의 실제 촬영 시각(EXIF DateTimeOriginal) 읽기. 없으면 null
+async function exifDate(file) {
+  try {
+    const v = new DataView(await file.slice(0, 256 * 1024).arrayBuffer());
+    if (v.getUint16(0) !== 0xFFD8) return null;
+    let o = 2;
+    while (o + 4 < v.byteLength) {
+      const marker = v.getUint16(o), len = v.getUint16(o + 2);
+      if (marker === 0xFFE1 && v.getUint32(o + 4) === 0x45786966) {   // 'Exif'
+        const t = o + 10, le = v.getUint16(t) === 0x4949;
+        const u16 = x => v.getUint16(x, le), u32 = x => v.getUint32(x, le);
+        const readTag = (ifd, tag) => {
+          const n = u16(t + ifd);
+          for (let i = 0; i < n; i++) { const e = t + ifd + 2 + i * 12; if (u16(e) === tag) return e; }
+          return -1;
+        };
+        const str = e => { let r = ''; const off = t + u32(e + 8); for (let i = 0; i < 19; i++) r += String.fromCharCode(v.getUint8(off + i)); return r; };
+        const ifd0 = u32(t + 4);
+        const ex = readTag(ifd0, 0x8769);
+        let e = ex >= 0 ? readTag(u32(ex + 8), 0x9003) : -1;   // DateTimeOriginal
+        if (e < 0) e = readTag(ifd0, 0x0132);                  // DateTime
+        if (e < 0) return null;
+        const m = str(e).match(/^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/);
+        return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : null;
+      }
+      if ((marker & 0xFF00) !== 0xFF00) break;
+      o += 2 + len;
+    }
+  } catch (e) {}
+  return null;
+}
+function wrapLines(g, lines, maxW) {
+  const out = [];
+  for (const line of lines) {
+    let cur = '';
+    for (const ch of line) { if (g.measureText(cur + ch).width > maxW && cur) { out.push(cur); cur = ch; } else cur += ch; }
+    out.push(cur);
+  }
+  return out;
+}
 function stamp(c, lines) {
   const g = c.getContext('2d');
   const fs = Math.max(16, Math.round(c.width / 28)), pad = Math.round(fs * 0.5);
+  g.font = `bold ${fs}px sans-serif`;
+  const first = lines[0]; lines = [first, ...wrapLines(g, lines.slice(1), c.width - pad * 2)];
   const h = lines.length * fs * 1.3 + pad * 2;
   g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(0, c.height - h, c.width, h);
   g.fillStyle = '#ffeb3b'; g.font = `bold ${fs}px sans-serif`; g.textBaseline = 'top';
   lines.forEach((t, i) => { g.fillText(t, pad, c.height - h + pad + i * fs * 1.3); if (i === 0) g.fillStyle = '#fff'; });
 }
-async function uploadPhoto(v, file, label) {
+async function uploadPhoto(v, file, label, desc, fromCam) {
   if (!navigator.onLine) throw new Error('인터넷 연결이 없습니다');
   const img = await loadImage(file);
-  const taken = new Date(file.lastModified || Date.now());   // 카메라로 찍으면 찍은 시각
-  const lines = [`${fmt(taken)} 촬영`, `${v.tag} (${v.area})${label ? ' · ' + label : ''} · ${me.name}`];
+  const ex = await exifDate(file);   // 사진에 저장된 실제 촬영 시각
+  const taken = ex || (fromCam ? new Date() : new Date(file.lastModified || Date.now()));
+  const when = ex || fromCam ? `${fmt(taken)} 촬영` : `${fmt(taken)} (파일 날짜, 촬영시각 정보 없음)`;
+  const lines = [when, `${v.tag} (${v.area})${label ? ' · ' + label : ''} · ${me.name}`];
+  if (desc) lines.push('위치: ' + desc);
   let dim = 1600, q = 0.75, data;
   do {   // 문서 1개 한도(1MB) 안으로 압축
     const c = drawScaled(img, dim); stamp(c, lines);
@@ -607,11 +660,13 @@ async function uploadPhoto(v, file, label) {
   const caption = lines.join(' / ');
   const pref = F.doc(F.collection(db, 'photos'));
   const b = F.writeBatch(db);
-  b.set(pref, { valveId: v.id, tag: v.tag, area: v.area, thumb, caption, takenAt: taken.getTime(), label,
+  b.set(pref, { valveId: v.id, tag: v.tag, area: v.area, thumb, caption, takenAt: taken.getTime(), label, desc: desc || '',
     userId: me.uid, userName: me.name, ts: F.serverTimestamp() });
   b.set(F.doc(db, 'photoFull', pref.id), { data, userId: me.uid });
   b.set(F.doc(F.collection(db, 'events')), { valveId: v.id, tag: v.tag, area: v.area, kind: '사진', photoId: pref.id,
-    userId: me.uid, userName: me.name, ts: F.serverTimestamp(), fromState: '', toState: '', memo: label || '사진 추가' });
+    userId: me.uid, userName: me.name, ts: F.serverTimestamp(), fromState: '', toState: '',
+    memo: [label || '사진 추가', desc ? '위치: ' + desc : ''].filter(Boolean).join(' · ') });
+  b.update(F.doc(db, 'valves', v.id), { photoCount: F.increment(1) });   // 목록의 📷 개수
   await b.commit();
 }
 async function showPhoto(pid, caption) {

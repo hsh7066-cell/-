@@ -83,6 +83,9 @@ await t("lee overwrites kim photo full", setDoc(doc(L, "photoFull/p1"), { data: 
 await t("photo event without photo", setDoc(doc(collection(K, "events")), { valveId: "v1", kind: "사진", photoId: "nope", userId: "kim", userName: "김운영", ts: serverTimestamp() }), false);
 await t("lee reads photo", getDoc(doc(L, "photoFull/p1")), true);
 await t("kim deletes photo", deleteDoc(doc(K, "photos/p1")), false);
+await t("photo count +1", updateDoc(doc(K, "valves/v1"), { photoCount: 1 }), true);
+await t("photo count +5 blocked", updateDoc(doc(K, "valves/v1"), { photoCount: 6 }), false);
+await t("photo count with other field blocked", updateDoc(doc(K, "valves/v1"), { photoCount: 2, note: "x" }), false);
 await t("event delete blocked", deleteDoc(doc(A, "events/x")), false);
 await t("admin deactivates kim", updateDoc(doc(A, "users/kim"), { active: false }), true);
 await t("deactivated kim reads valve", getDoc(doc(K, "valves/v1")), false);
