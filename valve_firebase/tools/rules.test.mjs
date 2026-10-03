@@ -19,7 +19,9 @@ b = writeBatch(X); b.set(doc(X, "users/stranger"), user("s","s","admin"));
 await t("second setup blocked", b.commit(), false);
 await t("stranger write own user", setDoc(doc(X, "users/stranger"), user("s","s")), false);
 await t("admin creates kim", setDoc(doc(A, "users/kim"), user("kim","김운영")), true);
-await t("admin creates lee", setDoc(doc(A, "users/lee"), user("lee","이기계")), true);
+await t("admin creates lee (팀장)", setDoc(doc(A, "users/lee"), { ...user("lee","이기계"), canVerify: true }), true);
+await t("canVerify must be bool", setDoc(doc(A, "users/bad"), { ...user("bad","b"), canVerify: "yes" }), false);
+await t("kim grants self canVerify", updateDoc(doc(K, "users/kim"), { canVerify: true }), false);
 await t("kim clears mustChangePw", updateDoc(doc(K, "users/kim"), { mustChangePw: false }), true);
 await t("kim makes self admin", updateDoc(doc(K, "users/kim"), { role: "admin" }), false);
 await t("admin deactivates self", updateDoc(doc(A, "users/admin"), { active: false }), false);
@@ -50,6 +52,7 @@ await t("kim operates as lee (forged name)", operate(K, "kim", "이기계", "CLO
 await t("kim operates with wrong rev", operate(K, "kim", "김운영", "CLOSE", 5), false);
 await t("kim operates CLOSE", operate(K, "kim", "김운영", "CLOSE", 0), true);
 await t("kim self-verifies", verify(K, "kim", "김운영", true, 1), false);
+await t("admin (no canVerify) verifies", verify(A, "admin", "관리자", true, 1), false);
 await t("lee verifies as kim id", verify(L, "kim", "김운영", true, 1), false);
 await t("lee verifies", verify(L, "lee", "이기계", true, 1), true);
 await t("lee verifies again (already done)", verify(L, "lee", "이기계", true, 2), false);
@@ -57,6 +60,29 @@ await t("fake event without valve change", setDoc(doc(collection(K, "events")), 
 await t("admin forges verification", updateDoc(doc(A, "valves/v1"), { status: "확인완료", verifiedBy: "관리자", verifiedById: "admin", rev: 3 }), false);
 await t("admin edits note", updateDoc(doc(A, "valves/v1"), { note: "메모", rev: 3 }), true);
 await t("admin resets", updateDoc(doc(A, "valves/v1"), { current: "미확인", status: "미조작", operatedBy: "", operatedById: "", operatedAt: null, verifiedBy: "", verifiedById: "", verifiedAt: null, rev: 4 }), true);
+// 엑셀 현재상태 반영
+const xs = { current: "OPEN", status: "확인대기", operatedBy: "관리자(엑셀)", operatedById: "admin", operatedAt: serverTimestamp(), verifiedBy: "", verifiedById: "", verifiedAt: null };
+await t("admin creates valve with excel state", setDoc(doc(A, "valves/v2"), { ...valve, tag: "HV-302", ...xs }), true);
+await t("admin excel state forged operator", setDoc(doc(A, "valves/v3"), { ...valve, tag: "HV-303", ...xs, operatedById: "kim" }), false);
+await t("admin excel state on existing", updateDoc(doc(A, "valves/v1"), { ...xs, current: "CLOSE", rev: 5 }), true);
+await t("kim excel-style state", updateDoc(doc(K, "valves/v2"), { ...xs, operatedById: "kim", rev: 1 }), false);
+let bb = writeBatch(A); bb.set(doc(collection(A, "events")), { valveId: "v2", kind: "엑셀반영", userId: "admin", userName: "관리자", ts: serverTimestamp(), rev: 0 });
+await t("admin excel event", bb.commit(), true);
+await t("lee verifies excel state", (() => { const b2 = writeBatch(L);
+  b2.update(doc(L, "valves/v2"), { status: "확인완료", verifiedBy: "이기계", verifiedById: "lee", verifiedAt: serverTimestamp(), rev: 1 });
+  b2.set(doc(collection(L, "events")), { valveId: "v2", kind: "확인", userId: "lee", userName: "이기계", ts: serverTimestamp(), rev: 1 }); return b2.commit(); })(), true);
+// 사진
+const photo = (fs_, uid, name, size, pid) => { const b2 = writeBatch(fs_);
+  b2.set(doc(fs_, "photos/" + pid), { valveId: "v1", thumb: "x", caption: "c", takenAt: 1, userId: uid, userName: name, ts: serverTimestamp() });
+  b2.set(doc(fs_, "photoFull/" + pid), { data: "x".repeat(size), userId: uid });
+  b2.set(doc(collection(fs_, "events")), { valveId: "v1", kind: "사진", photoId: pid, userId: uid, userName: name, ts: serverTimestamp() });
+  return b2.commit(); };
+await t("kim uploads photo", photo(K, "kim", "김운영", 500000, "p1"), true);
+await t("photo too big", photo(K, "kim", "김운영", 1010000, "p2"), false);
+await t("lee overwrites kim photo full", setDoc(doc(L, "photoFull/p1"), { data: "y", userId: "lee" }), false);
+await t("photo event without photo", setDoc(doc(collection(K, "events")), { valveId: "v1", kind: "사진", photoId: "nope", userId: "kim", userName: "김운영", ts: serverTimestamp() }), false);
+await t("lee reads photo", getDoc(doc(L, "photoFull/p1")), true);
+await t("kim deletes photo", deleteDoc(doc(K, "photos/p1")), false);
 await t("event delete blocked", deleteDoc(doc(A, "events/x")), false);
 await t("admin deactivates kim", updateDoc(doc(A, "users/kim"), { active: false }), true);
 await t("deactivated kim reads valve", getDoc(doc(K, "valves/v1")), false);

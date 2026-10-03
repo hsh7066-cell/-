@@ -87,3 +87,8 @@ th,td{border-bottom:1px solid var(--line);padding:7px 4px;text-align:left;white-
 .setup{border:2px dashed #fdb022;background:var(--hl)}
 .loading{text-align:center;color:var(--muted);padding:60px 0}
 code{background:#eef0f3;border-radius:4px;padding:1px 4px}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px;margin-top:8px}
+.photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer}
+.photo-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:12px;border:2px dashed var(--line);border-radius:10px;background:#fff;color:var(--brand);font-weight:700;cursor:pointer}
+.photo-prev{max-width:100%;border-radius:8px;margin-top:8px;display:block}
+.cam{font-size:12px;margin-left:4px}

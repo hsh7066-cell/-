@@ -3,7 +3,7 @@ rules_version = '2';
 // 밸브 조작 관리 - Firestore 보안 규칙
 // 화면(앱)을 조작해도 서버에서 아래 규칙을 반드시 통과해야 저장됩니다.
 //  - 등록된(사용중) 사용자만 읽기/쓰기
-//  - 조작 등록은 본인 이름으로만, 확인(검증)은 조작자가 아닌 다른 사람만
+//  - 조작 등록은 본인 이름으로만, 확인(검증)은 '확인 권한'이 있고 조작자가 아닌 사람만
 //  - 이력(events)은 추가만 가능, 수정/삭제 불가
 service cloud.firestore {
   match /databases/{db}/documents {
@@ -15,6 +15,8 @@ service cloud.firestore {
       return signedIn() && exists(userPath(request.auth.uid)) && me().active == true;
     }
     function isAdmin() { return isActive() && me().role == 'admin'; }
+    // 확인(검증) 권한: 관리자가 사용자 목록에서 지정한 사람(예: 운영부 팀장)만
+    function canVerify() { return isActive() && me().get('canVerify', false) == true; }
     function isState(s) { return s == 'OPEN' || s == 'CLOSE'; }
     function onlyChanged(keys) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
@@ -33,7 +35,8 @@ service cloud.firestore {
       function validUser() {
         let d = request.resource.data;
         return d.login is string && d.name is string && d.name.size() > 0
-          && d.role in ['admin', 'user'] && d.active is bool && d.mustChangePw is bool;
+          && d.role in ['admin', 'user'] && d.active is bool && d.mustChangePw is bool
+          && d.get('canVerify', false) is bool;
       }
       allow read: if isActive() || (signedIn() && request.auth.uid == uid);
       allow create: if (isAdmin() && validUser())
@@ -66,10 +69,10 @@ service cloud.firestore {
           && d.verifiedBy == '' && d.verifiedById == '' && d.verifiedAt == null
           && d.rev == resource.data.rev + 1;
       }
-      // 확인(검증): 조작한 사람과 다른 사람만
+      // 확인(검증): 확인 권한이 있고, 조작한 사람과 다른 사람만
       function isVerify() {
         let d = request.resource.data;
-        return isActive() && resource.data.active == true
+        return canVerify() && resource.data.active == true
           && onlyChanged(['status', 'verifiedBy', 'verifiedById', 'verifiedAt', 'rev'])
           && resource.data.status in ['확인대기', '불일치']
           && d.status in ['확인완료', '불일치']
@@ -78,7 +81,13 @@ service cloud.firestore {
           && d.verifiedAt == request.time
           && d.rev == resource.data.rev + 1;
       }
-      // 관리자: 정보 수정/숨김(조작·확인 기록은 못 바꿈) 또는 '미조작'으로 초기화
+      // 엑셀의 '밸브현재상태' 반영: 관리자 이름으로 조작 등록한 것과 같음 → 확인 필요
+      function isExcelState(d) {
+        return isState(d.current) && d.status == '확인대기'
+          && d.operatedById == request.auth.uid && d.operatedAt == request.time
+          && d.verifiedBy == '' && d.verifiedById == '' && d.verifiedAt == null;
+      }
+      // 관리자: 정보 수정/숨김(조작·확인 기록은 못 바꿈), '미조작'으로 초기화, 또는 엑셀 현재상태 반영
       function isAdminEdit() {
         let d = request.resource.data;
         let r = resource.data;
@@ -88,12 +97,14 @@ service cloud.firestore {
             && d.operatedAt == r.operatedAt && d.verifiedBy == r.verifiedBy
             && d.verifiedById == r.verifiedById && d.verifiedAt == r.verifiedAt)
           || (d.status == '미조작' && d.current == '미확인'
-            && d.operatedById == '' && d.verifiedById == ''));
+            && d.operatedById == '' && d.verifiedById == '')
+          || isExcelState(d));
       }
       allow read: if isActive();
       allow create: if isAdmin()
         && request.resource.data.tag is string && request.resource.data.tag.size() > 0
-        && request.resource.data.status == '미조작' && request.resource.data.current == '미확인'
+        && ((request.resource.data.status == '미조작' && request.resource.data.current == '미확인')
+            || isExcelState(request.resource.data))
         && request.resource.data.rev == 0 && request.resource.data.active == true;
       allow update: if isOperate() || isVerify() || isAdminEdit();
       allow delete: if false;
@@ -111,8 +122,36 @@ service cloud.firestore {
           (request.resource.data.kind in ['조작', '확인', '불일치']
             && get(valvePath()).data.rev + 1 == request.resource.data.rev
             && getAfter(valvePath()).data.rev == request.resource.data.rev)
-          || (isAdmin() && request.resource.data.kind in ['등록', '수정', '초기화', '숨김']));
+          || (isAdmin() && request.resource.data.kind in ['등록', '수정', '초기화', '숨김', '엑셀반영'])
+          || (request.resource.data.kind == '사진'
+            && exists(/databases/$(db)/documents/photos/$(request.resource.data.photoId))
+              == false && existsAfter(/databases/$(db)/documents/photos/$(request.resource.data.photoId))));
       allow update, delete: if false;
+    }
+
+    // 현장 사진 (압축한 사진을 문서에 직접 저장 - 무료 요금제에서 사용 가능)
+    match /photos/{pid} {
+      allow read: if isActive();
+      allow create: if isActive()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.userName == me().name
+        && request.resource.data.ts == request.time
+        && request.resource.data.valveId is string
+        && request.resource.data.thumb is string
+        && request.resource.data.thumb.size() < 100000;
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+    // 원본 크기 사진 (목록에는 작은 사진만, 눌렀을 때만 이걸 읽음)
+    match /photoFull/{pid} {
+      allow read: if isActive();
+      allow create: if isActive()
+        && request.resource.data.userId == request.auth.uid
+        && getAfter(/databases/$(db)/documents/photos/$(pid)).data.userId == request.auth.uid
+        && request.resource.data.data is string
+        && request.resource.data.data.size() < 1000000;
+      allow update: if false;
+      allow delete: if isAdmin();
     }
   }
 }

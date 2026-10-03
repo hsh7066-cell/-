@@ -91,17 +91,22 @@
     <section id="tHist" class="hidden">
       <div class="box" style="padding:10px 14px">
         <button class="btn sec" id="exHist">전체 이력 엑셀(CSV) 받기</button>
-        <button class="btn sec" id="exStatus">현재 상태표 받기</button>
+        <button class="btn sec" id="exStatus">밸브목록 엑셀(현재상태 포함) 받기</button>
       </div>
-      <div class="legend">최근 200건</div>
+      <div class="legend">최근 50건</div>
       <div id="histList"></div>
     </section>
     <section id="tAdmin" class="hidden">
       <div class="box">
-        <h3 style="margin-top:0">밸브 목록 불러오기 (새 작업)</h3>
-        <p class="legend">밸브 조작요청 엑셀(.xlsx)을 그대로 올리면 됩니다. (열 순서: S, 발행상태, 순번, 기기번호, 기기명, 조작요청 내용, 요청사항, 작업책임자, 연락처, 개방일, 개방시간, 투입일, 투입시간)
-          불러오면 현재 목록은 숨겨지고(이력은 보존) 새 목록이 '미조작' 상태로 시작합니다.</p>
-        <input type="file" id="xlFile" accept=".xlsx,.xls,.csv">
+        <h3 style="margin-top:0">밸브 목록 엑셀 올리기</h3>
+        <p class="legend">'밸브목록' 시트가 있는 엑셀(.xlsx/.xlsm)을 그대로 올리면 됩니다. 첫 줄 제목(기기번호, 기기명, 조작요청 내용, 밸브현재상태 …)으로 열을 찾습니다.
+          <b>밸브현재상태</b> 칸에 OPEN/CLOSE 가 있으면 앱의 현재상태로 바로 반영되고 '확인대기'가 됩니다(팀장 확인 필요).</p>
+        <input type="file" id="xlFile" accept=".xlsx,.xlsm,.xls,.csv">
+        <label>올리는 방식</label>
+        <select id="xlMode">
+          <option value="update">기존 목록 업데이트 — 같은 밸브(구역+기기명)는 내용·현재상태만 갱신, 새 밸브는 추가 (진행상황 유지)</option>
+          <option value="replace">새 작업으로 교체 — 지금 목록은 숨기고(이력 보존) 새로 시작</option>
+        </select>
         <label>메모(작업명)</label><input id="xlMemo" placeholder="예: 2026 축열조 정비">
         <div class="err" id="xlErr"></div>
         <div id="xlPreview"></div>
@@ -118,7 +123,8 @@
           <div><label>임시 비밀번호(6자 이상)</label><input id="nuPw"></div>
         </div>
         <label>권한</label>
-        <select id="nuRole"><option value="user">일반(조작/확인)</option><option value="admin">관리자</option></select>
+        <select id="nuRole"><option value="user">일반</option><option value="admin">관리자</option></select>
+        <label class="check"><input type="checkbox" id="nuVerify"><span>확인(검증) 권한 — 운영부 팀장 등 현장 확인 책임자만 체크</span></label>
         <div class="err" id="nuErr"></div>
         <button class="btn" id="nuBtn">등록</button>
         <p class="legend">등록한 사람은 첫 로그인 때 비밀번호를 직접 바꾸게 됩니다.
@@ -144,6 +150,10 @@
 </div>
 
 <div id="detail" class="sheet-bg hidden"><div class="sheet" id="detailBody"></div></div>
+<div id="photoView" class="sheet-bg hidden" style="align-items:center"><div class="sheet" style="padding:8px;border-radius:12px">
+  <img id="photoImg" style="width:100%;display:block;border-radius:8px" alt="현장 사진">
+  <div class="legend" id="photoCap" style="margin:6px 4px"></div>
+  <button class="btn full" id="photoClose">닫기</button></div></div>
 <div id="toast" class="toast hidden"></div>
 
 <script type="module">
@@ -292,7 +302,7 @@ function startApp() {
     render();
     if (openId && !busy && !$('#detail').classList.contains('hidden')) openDetail(openId);
   }, listenError));
-  dataUnsubs.push(F.onSnapshot(F.query(F.collection(db, 'events'), F.orderBy('ts', 'desc'), F.limit(200)), snap => {
+  dataUnsubs.push(F.onSnapshot(F.query(F.collection(db, 'events'), F.orderBy('ts', 'desc'), F.limit(50)), snap => {
     const evs = snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }));
     if (!firstEvents) {
       const news = snap.docChanges().filter(c => c.type === 'added' && c.doc.data().userId !== me.uid).map(c => c.doc.data());
@@ -362,8 +372,14 @@ async function openDetail(id) {
     const s = await F.getDocs(F.query(F.collection(db, 'events'), F.where('valveId', '==', id)));
     hist = s.docs.map(d => d.data({ serverTimestamps: 'estimate' })).sort((a, b) => (b.ts?.toMillis?.() || 0) - (a.ts?.toMillis?.() || 0));
   } catch (e) {}
+  let photos = [];
+  try {
+    const s = await F.getDocs(F.query(F.collection(db, 'photos'), F.where('valveId', '==', id)));
+    photos = s.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) })).sort((a, b) => (b.takenAt || 0) - (a.takenAt || 0));
+  } catch (e) {}
   if (busy || openId !== id) return;
   const canVerify = (v.status === '확인대기' || v.status === '불일치');
+  const iCanVerify = me.canVerify === true;
   const mine = v.operatedById === me.uid;
   const isAdmin = me.role === 'admin';
   $('#detailBody').innerHTML = `
@@ -380,6 +396,8 @@ async function openDetail(id) {
       <div>요청사항</div><div>${esc(v.note || '-')}</div>
       <div>작업책임자</div><div>${esc(v.owner || '-')} ${esc(v.phone)}</div>
       <div>개방~투입</div><div>${esc(v.workStart)} ~ ${esc(v.workEnd)}</div>
+      ${v.drawing ? `<div>도면</div><div>${esc(v.drawing)}${v.drawingLoc ? ' (' + esc(v.drawingLoc) + ')' : ''}</div>` : ''}
+      ${v.remark ? `<div>비고</div><div>${esc(v.remark)}</div>` : ''}
       <div>조작</div><div>${v.operatedBy ? esc(v.operatedBy) + ' · ' + esc(fmt(v.operatedAt)) : '-'}</div>
       <div>확인</div><div>${v.verifiedBy ? esc(v.verifiedBy) + ' · ' + esc(fmt(v.verifiedAt)) : '-'}</div>
     </div>
@@ -390,8 +408,9 @@ async function openDetail(id) {
       </div>
       <div class="legend">노란 테두리 = 작업요청 상태</div>
     </div>
-    ${canVerify ? `<div class="section"><h3>② 확인(검증) — 조작자가 아닌 사람이 현장에서 직접 보고 누르세요</h3>
-      ${mine ? `<div class="warn">본인이 조작한 밸브입니다. 다른 사람이 확인해야 합니다.</div>` : `
+    ${canVerify ? `<div class="section"><h3>② 확인(검증) — 확인 권한자(운영부 팀장)가 현장에서 직접 보고 누르세요</h3>
+      ${mine ? `<div class="warn">본인이 조작한 밸브입니다. 다른 확인 권한자가 확인해야 합니다.</div>`
+      : !iCanVerify ? `<div class="warn">${esc(v.operatedBy)} 님이 ${esc(v.current)}(으)로 조작했습니다. 확인은 확인 권한자(운영부 팀장)만 할 수 있습니다.</div>` : `
       <div class="warn">${esc(v.operatedBy)} 님이 <b>${esc(v.current)}</b>(으)로 조작했다고 등록했습니다. 실제 밸브도 ${esc(v.current)} 상태입니까?</div>
       <input id="vMemo" placeholder="메모 (불일치일 때 필수: 실제 상태/사유)">
       <div class="row" style="margin-top:8px">
@@ -407,6 +426,12 @@ async function openDetail(id) {
       <label>요청사항</label><input id="eNote" value="${esc(v.note)}">
       <div class="row" style="margin-top:8px"><button class="btn sec" id="eSave">정보 저장</button>
         <button class="btn sec" id="eReset">상태 초기화(미조작)</button></div></div>` : ''}
+    <div class="section"><h3>현장 사진 (${photos.length})</h3>
+      <label class="photo-btn">📷 사진 추가 (촬영 날짜·시간이 사진에 자동 표시)
+        <input type="file" id="phAdd" accept="image/*" capture="environment" class="hidden"></label>
+      <div class="err" id="phErr"></div>
+      <div class="photos">${photos.map(p => `<img src="${p.thumb}" data-pid="${p.id}" alt="사진" title="${esc(p.caption)}">`).join('')}</div>
+    </div>
     <div class="section"><h3>이 밸브의 이력</h3>
       ${hist.map(e => `<div class="hist"><div class="t">${esc(fmt(e.ts))} · ${esc(e.userName)}</div>
         <b>${esc(e.kind)}</b> ${e.fromState || e.toState ? esc(e.fromState || '') + ' → ' + esc(e.toState || '') : ''}
@@ -415,7 +440,14 @@ async function openDetail(id) {
   $('#detail').classList.remove('hidden');
   $('#dClose').onclick = closeDetail;
   $('#detailBody').querySelectorAll('.ops button').forEach(b => b.onclick = () => confirmOperate(v, b.dataset.s));
-  if (canVerify && !mine) { $('#vOk').onclick = () => doVerify(v, true); $('#vNg').onclick = () => doVerify(v, false); }
+  if (canVerify && !mine && iCanVerify) { $('#vOk').onclick = () => doVerify(v, true); $('#vNg').onclick = () => doVerify(v, false); }
+  $('#phAdd').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    busy = true; $('#phErr').textContent = '사진 올리는 중...';
+    try { await uploadPhoto(v, f, ''); toast('사진을 올렸습니다'); busy = false; openDetail(v.id); }
+    catch (err) { $('#phErr').textContent = errMsg(err); busy = false; }
+  };
+  $('#detailBody').querySelectorAll('.photos img').forEach(im => im.onclick = () => showPhoto(im.dataset.pid, im.title));
   if (isAdmin) {
     $('#eSave').onclick = () => adminEdit(v, { target: $('#eTarget').value, pid: $('#ePid').value.trim(), area: $('#eArea').value.trim(), tag: $('#eTag').value.trim(), note: $('#eNote').value.trim() });
     $('#eReset').onclick = () => confirm(`${v.tag} 상태를 '미확인/미조작'으로 초기화할까요? (이력은 남습니다)`) && adminEdit(v, null);
@@ -452,10 +484,19 @@ function confirmOperate(v, state) {
     <label class="check"><input type="checkbox" id="c1"><span>현장의 밸브 태그(명판)가 <b>${esc(v.tag)}</b> 인 것을 직접 확인했습니다.</span></label>
     <label class="check"><input type="checkbox" id="c2"><span>밸브를 실제로 <b>${state}</b> 했습니다.</span></label>
     <label>메모 (선택)</label><input id="opMemo" placeholder="예: 핸들 잠금장치 설치">
+    <label>현장 사진 (선택, 권장)</label>
+    <label class="photo-btn">📷 사진 찍기 — 날짜·시간·밸브명이 사진에 자동 표시됩니다
+      <input type="file" id="opPhoto" accept="image/*" capture="environment" class="hidden"></label>
+    <img id="opPrev" class="photo-prev hidden" alt="미리보기">
     <div class="err" id="opErr"></div>
     <div class="row"><button class="btn sec" id="opBack">취소</button><button class="btn" id="opGo" disabled>등록</button></div>`;
   const upd = () => $('#opGo').disabled = !($('#c1').checked && $('#c2').checked);
   $('#c1').onchange = upd; $('#c2').onchange = upd;
+  let photo = null;
+  $('#opPhoto').onchange = e => {
+    photo = e.target.files[0] || null;
+    if (photo) { $('#opPrev').src = URL.createObjectURL(photo); $('#opPrev').classList.remove('hidden'); }
+  };
   $('#opBack').onclick = () => { busy = false; openDetail(v.id); };
   $('#opGo').onclick = async () => {
     $('#opGo').disabled = true;
@@ -463,7 +504,12 @@ function confirmOperate(v, state) {
       await changeValve(v, cur => ({ current: state, status: '확인대기', operatedBy: me.name, operatedById: me.uid,
         operatedAt: F.serverTimestamp(), verifiedBy: '', verifiedById: '', verifiedAt: null }),
         { kind: '조작', fromState: v.current, toState: state, memo: $('#opMemo').value.trim() });
-      toast(`${v.tag} → ${state} 등록됨. 다른 사람의 확인이 필요합니다.`);
+      if (photo) {
+        $('#opErr').textContent = '사진 올리는 중...';
+        try { await uploadPhoto(v, photo, state + ' 조작'); }
+        catch (pe) { toast('조작은 등록됐지만 사진 올리기에 실패했습니다: ' + errMsg(pe), 6000); }
+      }
+      toast(`${v.tag} → ${state} 등록됨. 팀장 확인이 필요합니다.`);
       busy = false; openDetail(v.id);
     } catch (e) {
       $('#opErr').textContent = errMsg(e);
@@ -471,6 +517,61 @@ function confirmOperate(v, state) {
     }
   };
 }
+/* ---------- 현장 사진: 날짜·시간·밸브명을 사진에 새기고 압축해서 저장 ---------- */
+function loadImage(file) {
+  return new Promise((ok, no) => {
+    const img = new Image();
+    img.onload = () => ok(img);
+    img.onerror = () => no(new Error('사진을 읽을 수 없습니다'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+function drawScaled(img, maxDim) {
+  const r = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.naturalWidth * r); c.height = Math.round(img.naturalHeight * r);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return c;
+}
+function stamp(c, lines) {
+  const g = c.getContext('2d');
+  const fs = Math.max(16, Math.round(c.width / 28)), pad = Math.round(fs * 0.5);
+  const h = lines.length * fs * 1.3 + pad * 2;
+  g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(0, c.height - h, c.width, h);
+  g.fillStyle = '#ffeb3b'; g.font = `bold ${fs}px sans-serif`; g.textBaseline = 'top';
+  lines.forEach((t, i) => { g.fillText(t, pad, c.height - h + pad + i * fs * 1.3); if (i === 0) g.fillStyle = '#fff'; });
+}
+async function uploadPhoto(v, file, label) {
+  if (!navigator.onLine) throw new Error('인터넷 연결이 없습니다');
+  const img = await loadImage(file);
+  const taken = new Date(file.lastModified || Date.now());   // 카메라로 찍으면 찍은 시각
+  const lines = [`${fmt(taken)} 촬영`, `${v.tag} (${v.area})${label ? ' · ' + label : ''} · ${me.name}`];
+  let dim = 1600, q = 0.75, data;
+  do {   // 문서 1개 한도(1MB) 안으로 압축
+    const c = drawScaled(img, dim); stamp(c, lines);
+    data = c.toDataURL('image/jpeg', q); dim = Math.round(dim * 0.8); q = Math.max(0.5, q - 0.05);
+  } while (data.length > 900000 && dim > 400);
+  const tc = drawScaled(img, 240);
+  const thumb = tc.toDataURL('image/jpeg', 0.6);
+  const caption = lines.join(' / ');
+  const pref = F.doc(F.collection(db, 'photos'));
+  const b = F.writeBatch(db);
+  b.set(pref, { valveId: v.id, tag: v.tag, area: v.area, thumb, caption, takenAt: taken.getTime(), label,
+    userId: me.uid, userName: me.name, ts: F.serverTimestamp() });
+  b.set(F.doc(db, 'photoFull', pref.id), { data, userId: me.uid });
+  b.set(F.doc(F.collection(db, 'events')), { valveId: v.id, tag: v.tag, area: v.area, kind: '사진', photoId: pref.id,
+    userId: me.uid, userName: me.name, ts: F.serverTimestamp(), fromState: '', toState: '', memo: label || '사진 추가' });
+  await b.commit();
+}
+async function showPhoto(pid, caption) {
+  $('#photoImg').src = ''; $('#photoCap').textContent = '불러오는 중...'; $('#photoView').classList.remove('hidden');
+  try {
+    const s = await F.getDoc(F.doc(db, 'photoFull', pid));
+    $('#photoImg').src = s.data().data; $('#photoCap').textContent = caption;
+  } catch (e) { $('#photoCap').textContent = errMsg(e); }
+}
+$('#photoClose').onclick = () => $('#photoView').classList.add('hidden');
+
 async function doVerify(v, ok) {
   const memo = $('#vMemo').value.trim();
   if (!ok && !memo) return toast('불일치일 때는 실제 상태/사유를 메모에 적어주세요');
@@ -504,7 +605,7 @@ function renderHist(evs) {
   $('#histList').innerHTML = shown.map(e => `<div class="box" style="padding:10px 12px;margin-bottom:6px">
     <div class="legend" style="margin:0">${esc(fmt(e.ts))} · ${esc(e.userName)}</div>
     <b>${esc(e.tag)}</b> <span class="legend">${esc(e.area)}</span><br>
-    <span class="badge b-${e.kind === '확인' ? '확인완료' : e.kind === '불일치' ? '불일치' : e.kind === '조작' ? '확인대기' : '미조작'}">${esc(e.kind)}</span>
+    <span class="badge b-${e.kind === '확인' ? '확인완료' : e.kind === '불일치' ? '불일치' : ['조작', '엑셀반영'].includes(e.kind) ? '확인대기' : '미조작'}">${e.kind === '사진' ? '📷 ' : ''}${esc(e.kind)}</span>
     ${e.fromState || e.toState ? esc(e.fromState || '') + ' → ' + esc(e.toState || '') : ''} ${e.memo ? '· ' + esc(e.memo) : ''}</div>`).join('')
     || '<div class="box legend">아직 조작 이력이 없습니다.</div>';
 }
@@ -522,22 +623,41 @@ $('#exHist').onclick = async () => {
       s.docs.map(d => d.data()).map(e => [fmt(e.ts), e.area, e.tag, e.kind, e.fromState, e.toState, e.userName, e.memo]));
   } catch (e) { toast(errMsg(e)); }
 };
-$('#exStatus').onclick = () => downloadCsv('밸브현재상태.csv',
-  ['순번', '구역', '밸브명', '도면번호', '요구상태', '현재상태', '검증', '조작자', '조작일시', '확인자', '확인일시', '요청사항'],
-  valves.map(v => [v.seq, v.area, v.tag, v.pid, v.target, v.current, v.status, v.operatedBy, fmt(v.operatedAt), v.verifiedBy, fmt(v.verifiedAt), v.note]));
+// 밸브목록 시트와 같은 열 순서로 내려받기 (현재상태 포함) → 수정해서 다시 올릴 수 있음
+$('#exStatus').onclick = async () => {
+  try {
+    await loadXlsxLib();
+    const split = t => { const m = String(t || '').match(/^(\S+)\s+(\S+)$/); return m ? [m[1], m[2]] : [t || '', '']; };
+    const head = ['순번', '발행상태', '도면번호', '기기번호', '기기명(*)', '조작요청 내용(*)', '요청사항', '작업책임자(*)', '밸브현재상태',
+      '개방일시', '', '투입일시', '', '취소요청사유', '도면', '도면 위치(클릭)', '비고(도면 대조)', '검증', '조작자', '조작일시', '확인자', '확인일시'];
+    const rows = valves.map(v => [v.seq, '', v.pid, v.area, v.tag, v.target, v.note, v.owner, isState(v.current) ? v.current : '',
+      ...split(v.workStart), ...split(v.workEnd), '', v.drawing || '', v.drawingLoc || '', v.remark || '',
+      v.status, v.operatedBy, fmt(v.operatedAt), v.verifiedBy, fmt(v.verifiedAt)]);
+    const ws = XLSX.utils.aoa_to_sheet([head, ...rows]);
+    ws['!cols'] = head.map((h, i) => ({ wch: [4, 8].includes(i) ? 22 : 12 }));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '밸브목록');
+    const d = new Date();
+    XLSX.writeFile(wb, `밸브목록_현재상태_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.xlsx`);
+  } catch (e) { toast(errMsg(e)); }
+};
+const isState = x => x === 'OPEN' || x === 'CLOSE';
 
 /* ---------- 관리자: 사용자 ---------- */
 function renderUsers(us) {
   us.sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
-  $('#userTbl').innerHTML = '<tr><th>아이디</th><th>이름</th><th>부서</th><th>권한</th><th>상태</th><th></th></tr>' +
+  $('#userTbl').innerHTML = '<tr><th>아이디</th><th>이름</th><th>부서</th><th>권한</th><th>확인권한</th><th>상태</th><th></th></tr>' +
     us.map(u => `<tr><td>${esc(u.login)}</td><td>${esc(u.name)}</td><td>${esc(u.dept)}</td>
       <td>${u.role === 'admin' ? '관리자' : '일반'}</td>
+      <td><button class="btn ${u.canVerify ? '' : 'sec'}" style="padding:5px 8px" data-cv="${u.uid}" data-v="${u.canVerify ? 0 : 1}">${u.canVerify ? '✔ 팀장(확인)' : '없음'}</button></td>
       <td>${u.active ? (u.mustChangePw ? '첫 로그인 전' : '사용') : '<span style="color:var(--bad)">중지</span>'}</td>
       <td>${u.uid === me.uid ? '' : `<button class="btn sec" style="padding:5px 8px" data-uid="${u.uid}" data-v="${u.active ? 0 : 1}">${u.active ? '사용중지' : '사용재개'}</button>`}</td></tr>`).join('');
   $('#userTbl').querySelectorAll('[data-uid]').forEach(b => b.onclick = async () => {
     const on = b.dataset.v === '1';
     if (!on && !confirm('이 사용자를 사용중지할까요? 바로 접속이 차단됩니다.')) return;
     try { await F.updateDoc(F.doc(db, 'users', b.dataset.uid), { active: on }); } catch (e) { toast(errMsg(e)); }
+  });
+  $('#userTbl').querySelectorAll('[data-cv]').forEach(b => b.onclick = async () => {
+    try { await F.updateDoc(F.doc(db, 'users', b.dataset.cv), { canVerify: b.dataset.v === '1' }); } catch (e) { toast(errMsg(e)); }
   });
 }
 $('#nuBtn').onclick = async () => {
@@ -555,9 +675,10 @@ $('#nuBtn').onclick = async () => {
     const cred = await F.createUserWithEmailAndPassword(sa, login + EMAIL_DOMAIN, pw);
     await F.signOut(sa);
     await F.setDoc(F.doc(db, 'users', cred.user.uid), { login, name, dept: $('#nuDept').value.trim(),
-      role: $('#nuRole').value === 'admin' ? 'admin' : 'user', active: true, mustChangePw: true, createdAt: F.serverTimestamp() });
+      role: $('#nuRole').value === 'admin' ? 'admin' : 'user', canVerify: $('#nuVerify').checked,
+      active: true, mustChangePw: true, createdAt: F.serverTimestamp() });
     toast(`${name}(${login}) 등록했습니다`);
-    ['#nuLogin', '#nuName', '#nuDept', '#nuPw'].forEach(s => $(s).value = '');
+    ['#nuLogin', '#nuName', '#nuDept', '#nuPw'].forEach(s => $(s).value = ''); $('#nuVerify').checked = false;
   } catch (e) {
     $('#nuErr').textContent = e.code === 'auth/email-already-in-use'
       ? '이미 있는 아이디입니다. 다른 아이디(예: ' + login + '2)를 쓰세요.' : errMsg(e);
@@ -578,60 +699,128 @@ function normState(raw, rowNo, warns) {
   if (s.startsWith('OP')) { warns.push(`${rowNo}행: '${raw}' → OPEN`); return 'OPEN'; }
   warns.push(`${rowNo}행: 요구상태 '${raw}' 알 수 없음 → 빈칸`); return '';
 }
-const cell = x => x instanceof Date ? `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}` : String(x ?? '').trim();
-$('#xlFile').onchange = async () => {
+function cell(x) {
+  if (x instanceof Date) return x.getFullYear() < 1901   // 시간만 있는 칸
+    ? `${pad(x.getHours())}:${pad(x.getMinutes())}` : `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
+  return String(x ?? '').trim();
+}
+const keyOf = (area, tag) => (area + '|' + tag).toUpperCase().replace(/\s/g, '');
+// 첫 줄 제목으로 열 위치를 찾음 (예전 양식/새 양식 모두)
+function mapColumns(head) {
+  const h = head.map(x => cell(x).replace(/\s|\(\*\)/g, ''));
+  const find = (...keys) => h.findIndex(x => x && keys.some(k => x.includes(k)));
+  const c = {
+    seq: h.indexOf('S') >= 0 ? h.indexOf('S') : find('순번'),
+    pid: find('도면번호'),
+    area: find('기기번호', '구역'),
+    tag: find('기기명', '밸브명'),
+    target: find('조작요청', '요구상태'),
+    note: find('요청사항'),
+    owner: h.findIndex(x => x.includes('작업책임자') && !x.includes('연락처')),
+    phone: find('연락처'),
+    cur: find('현재상태'),
+    start: find('개방일시', '개방일'),
+    end: find('투입일시', '투입일'),
+    drawing: h.indexOf('도면'),
+    drawingLoc: find('도면위치'),
+    remark: find('비고'),
+  };
+  if (c.pid < 0 && h.indexOf('S') >= 0 && find('순번') >= 0) c.pid = find('순번');   // 예전 양식: '순번' 열에 도면번호
+  c.startT = c.start >= 0 && !h[c.start + 1] ? c.start + 1 : -1;   // 바로 옆 제목 없는 칸 = 시간
+  c.endT = c.end >= 0 && !h[c.end + 1] ? c.end + 1 : -1;
+  return c;
+}
+$('#xlFile').onchange = previewExcel;
+$('#xlMode').onchange = previewExcel;
+async function previewExcel() {
   $('#xlErr').textContent = ''; $('#xlPreview').innerHTML = ''; parsed = null;
   const f = $('#xlFile').files[0]; if (!f) return;
   try {
     await loadXlsxLib();
     const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
-    const head = rows[0].map(cell), warns = [], out = [];
-    const named = head.includes('밸브명');   // import_excel.py 로 만든 valves.csv 형식
-    const col = k => head.indexOf(k);
-    rows.slice(1).forEach((r, i) => {
-      const g = n => cell(r[n]);
-      const rec = named
-        ? { seq: g(col('순번')), area: g(col('구역')), tag: g(col('밸브명')), pid: g(col('도면번호')), target: g(col('요구상태')), note: g(col('요청사항')),
-            owner: g(col('작업책임자')), phone: g(col('연락처')), workStart: g(col('개방일시')), workEnd: g(col('투입일시')) }
-        : { seq: g(0), area: g(3), tag: g(4), pid: g(2), target: g(5), note: g(6), owner: g(7), phone: g(8),
-            workStart: (g(9) + ' ' + g(10)).trim(), workEnd: (g(11) + ' ' + g(12)).trim() };
+    const sheetName = wb.SheetNames.find(n => n.includes('밸브목록')) || wb.SheetNames[0];
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: '' });
+    const hi = rows.slice(0, 5).findIndex(r => r.some(x => /기기명|밸브명/.test(cell(x))));
+    if (hi < 0) throw new Error(`'${sheetName}' 시트 첫 줄에 '기기명' 제목이 없습니다`);
+    const c = mapColumns(rows[hi]), warns = [], out = [];
+    const g = (r, n) => n >= 0 ? cell(r[n]) : '';
+    rows.slice(hi + 1).forEach((r, i) => {
+      const rowNo = hi + i + 2;
+      const rec = { seq: g(r, c.seq), area: g(r, c.area), tag: g(r, c.tag), pid: g(r, c.pid), note: g(r, c.note),
+        owner: g(r, c.owner), phone: g(r, c.phone), drawing: g(r, c.drawing), drawingLoc: g(r, c.drawingLoc), remark: g(r, c.remark),
+        workStart: (g(r, c.start) + ' ' + g(r, c.startT)).trim(), workEnd: (g(r, c.end) + ' ' + g(r, c.endT)).trim() };
       if (!rec.tag) return;
-      rec.target = normState(rec.target, i + 2, warns);
+      rec.target = normState(g(r, c.target), rowNo, warns);
+      const cur = g(r, c.cur);
+      rec.cur = cur ? normState(cur, rowNo, warns) : '';
       rec.note = rec.note === '-' ? '' : rec.note.replace(/\n/g, ' / ');
+      rec.remark = rec.remark.replace(/\n/g, ' / ');
       rec.seq = /^\d+$/.test(rec.seq) ? +rec.seq : out.length + 1;
       out.push(rec);
     });
-    if (!out.length) throw new Error('밸브가 없습니다. 첫 번째 시트, 5번째 열(기기명)을 확인하세요.');
+    if (!out.length) throw new Error('밸브가 없습니다. 기기명 열을 확인하세요.');
     parsed = out;
     const cnt = s => out.filter(x => x.target === s).length;
-    $('#xlPreview').innerHTML = `<div class="warn">밸브 <b>${out.length}</b>개 (OPEN ${cnt('OPEN')}, CLOSE ${cnt('CLOSE')}) · 구역 ${new Set(out.map(x => x.area)).size}곳
+    let plan = '';
+    if ($('#xlMode').value === 'update') {
+      const exist = new Set(valves.map(v => keyOf(v.area, v.tag)));
+      const match = out.filter(x => exist.has(keyOf(x.area, x.tag))).length;
+      const inXl = new Set(out.map(x => keyOf(x.area, x.tag)));
+      plan = `<br>→ 같은 밸브 <b>${match}</b>개(바뀐 내용만 갱신) · 새로 추가 <b>${out.length - match}</b>개 · 엑셀에 없는 기존 밸브 ${valves.filter(v => !inXl.has(keyOf(v.area, v.tag))).length}개(그대로 둠)`;
+    } else plan = `<br>→ 지금 목록 ${valves.length}개를 숨기고 새로 ${out.length}개 등록`;
+    $('#xlPreview').innerHTML = `<div class="warn">'${esc(sheetName)}' 시트 · 밸브 <b>${out.length}</b>개 (요구 OPEN ${cnt('OPEN')}, CLOSE ${cnt('CLOSE')}) · 구역 ${new Set(out.map(x => x.area)).size}곳
+      · 밸브현재상태 입력 <b>${out.filter(x => x.cur).length}</b>개${plan}
+      ${c.cur < 0 ? '<br>(밸브현재상태 열 없음 — 상태는 바뀌지 않음)' : ''}
       ${warns.length ? `<br>자동 수정/확인 필요 ${warns.length}건:<br><span class="legend">${warns.map(esc).join('<br>')}</span>` : ''}</div>`;
   } catch (e) { $('#xlErr').textContent = e.message; }
-};
+}
+const INFO = ['seq', 'area', 'tag', 'pid', 'target', 'note', 'owner', 'phone', 'workStart', 'workEnd', 'drawing', 'drawingLoc', 'remark'];
+const INFO_LABEL = { seq: '순번', area: '구역', tag: '밸브명', pid: '도면번호', target: '요구상태', note: '요청사항', owner: '작업책임자',
+  phone: '연락처', workStart: '개방일시', workEnd: '투입일시', drawing: '도면', drawingLoc: '도면위치', remark: '비고' };
+const excelState = cur => ({ current: cur, status: '확인대기', operatedBy: me.name + '(엑셀)', operatedById: me.uid,
+  operatedAt: F.serverTimestamp(), verifiedBy: '', verifiedById: '', verifiedAt: null });
 $('#xlBtn').onclick = async () => {
   $('#xlErr').textContent = '';
   if (!parsed) return $('#xlErr').textContent = '엑셀 파일을 선택하세요';
   if (!navigator.onLine) return $('#xlErr').textContent = '인터넷 연결이 필요합니다';
-  if (!confirm(`현재 밸브 ${valves.length}개를 숨기고 새 목록 ${parsed.length}개로 바꿉니다. 계속할까요?`)) return;
+  const mode = $('#xlMode').value;
+  if (!confirm(mode === 'update' ? `엑셀 내용으로 기존 목록을 갱신합니다. 현재상태가 다른 밸브는 '확인대기'로 바뀝니다. 계속할까요?`
+    : `현재 밸브 ${valves.length}개를 숨기고 새 목록 ${parsed.length}개로 바꿉니다. 계속할까요?`)) return;
   $('#xlBtn').disabled = true;
-  const memo = $('#xlMemo').value.trim() || '목록 불러오기';
+  const memo = $('#xlMemo').value.trim() || (mode === 'update' ? '엑셀 업데이트' : '목록 불러오기');
+  const ev = (vid, r, kind, extra) => b => b.set(F.doc(F.collection(db, 'events')), { valveId: vid, tag: r.tag, area: r.area, kind,
+    userId: me.uid, userName: me.name, ts: F.serverTimestamp(), rev: 0, fromState: '', toState: '', memo, ...extra });
   try {
-    const ops = [];
-    for (const v of valves) ops.push(b => b.update(F.doc(db, 'valves', v.id), { active: false, rev: v.rev + 1 }));
+    const ops = []; let nNew = 0, nUpd = 0, nState = 0;
+    const byKey = new Map();
+    if (mode === 'update') valves.forEach(v => { const k = keyOf(v.area, v.tag); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(v); });
+    else valves.forEach(v => ops.push(b => b.update(F.doc(db, 'valves', v.id), { active: false, rev: v.rev + 1 })));
     for (const r of parsed) {
-      const ref = F.doc(F.collection(db, 'valves'));
-      ops.push(b => b.set(ref, { ...r, current: '미확인', status: '미조작', operatedBy: '', operatedById: '', operatedAt: null,
-        verifiedBy: '', verifiedById: '', verifiedAt: null, rev: 0, active: true, batch: memo, createdAt: F.serverTimestamp() }));
-      ops.push(b => b.set(F.doc(F.collection(db, 'events')), { valveId: ref.id, tag: r.tag, area: r.area, kind: '등록', userId: me.uid,
-        userName: me.name, ts: F.serverTimestamp(), rev: 0, fromState: '', toState: r.target, memo }));
+      const { cur, ...info } = r;
+      const v = mode === 'update' ? byKey.get(keyOf(r.area, r.tag))?.shift() : null;
+      if (!v) {   // 새 밸브
+        const ref = F.doc(F.collection(db, 'valves'));
+        const base = { current: '미확인', status: '미조작', operatedBy: '', operatedById: '', operatedAt: null, verifiedBy: '', verifiedById: '', verifiedAt: null };
+        ops.push(b => b.set(ref, { ...info, ...base, ...(cur ? excelState(cur) : {}), rev: 0, active: true, batch: memo, createdAt: F.serverTimestamp() }));
+        ops.push(ev(ref.id, r, '등록', { toState: r.target }));
+        if (cur) { ops.push(ev(ref.id, r, '엑셀반영', { fromState: '미확인', toState: cur, memo: memo + ' (현재상태 반영, 팀장 확인 필요)' })); nState++; }
+        nNew++; continue;
+      }
+      const upd = {}, changes = [];
+      INFO.forEach(k => { if (String(v[k] ?? '') !== String(info[k] ?? '')) { upd[k] = info[k]; changes.push(`${INFO_LABEL[k]}: ${v[k] || '-'} → ${info[k] || '-'}`); } });
+      const stateChange = cur && cur !== v.current;
+      if (!changes.length && !stateChange) continue;
+      ops.push(b => b.update(F.doc(db, 'valves', v.id), { ...upd, ...(stateChange ? excelState(cur) : {}), rev: v.rev + 1 }));
+      if (changes.length) ops.push(ev(v.id, r, '수정', { memo: changes.join('; ') }));
+      if (stateChange) { ops.push(ev(v.id, r, '엑셀반영', { fromState: v.current, toState: cur, memo: memo + ' (현재상태 반영, 팀장 확인 필요)' })); nState++; }
+      nUpd++;
     }
     for (let i = 0; i < ops.length; i += 200) {
       const b = F.writeBatch(db); ops.slice(i, i + 200).forEach(op => op(b)); await b.commit();
     }
-    toast(`밸브 ${parsed.length}개를 불러왔습니다`);
+    toast(mode === 'update' ? `갱신 ${nUpd}개 · 추가 ${nNew}개 · 현재상태 반영 ${nState}개` : `밸브 ${parsed.length}개를 불러왔습니다 (현재상태 반영 ${nState}개)`, 6000);
     parsed = null; $('#xlFile').value = ''; $('#xlPreview').innerHTML = '';
-  } catch (e) { $('#xlErr').textContent = errMsg(e); }
+  } catch (e) { $('#xlErr').textContent = errMsg(e) + ' — 다른 사람이 동시에 바꿨을 수 있습니다. 화면을 새로고침 후 다시 올려주세요.'; }
   finally { $('#xlBtn').disabled = false; }
 };
 </script>
