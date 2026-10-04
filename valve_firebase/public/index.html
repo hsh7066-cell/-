@@ -244,7 +244,10 @@ $('#lgBtn').onclick = async () => {
   $('#lgErr').textContent = '';
   const id = $('#lgId').value.trim().toLowerCase();
   try {
-    await F.signInWithEmailAndPassword(auth, id + EMAIL_DOMAIN, $('#lgPw').value);
+    // 아이디 → 로그인 주소 (다시 만든 계정은 주소 뒤에 번호가 붙어 있음)
+    let email = id + EMAIL_DOMAIN;
+    try { const m = await F.getDoc(F.doc(db, 'logins', id)); if (m.exists() && m.data().email) email = m.data().email; } catch (e) {}
+    await F.signInWithEmailAndPassword(auth, email, $('#lgPw').value);
     try { localStorage.setItem('vs_login', id); } catch (e) {}
   } catch (e) { $('#lgErr').textContent = errMsg(e); }
 };
@@ -883,40 +886,63 @@ $('#tplEmpty').onclick = () => downloadTemplate(false);
 const isState = x => x === 'OPEN' || x === 'CLOSE';
 
 /* ---------- 관리자: 사용자 ---------- */
-let lastUsers = [], secrets = new Map(), showDeleted = false;
-// 다른 사람 계정으로 잠깐 로그인해서(보조 연결) 비밀번호 변경·삭제 → 관리자 로그인은 그대로 유지
-async function asUser(login, pw, fn) {
-  const sec = F.initializeApp(firebaseConfig, 'sec-' + Date.now());
+let lastUsers = [], secrets = new Map();
+const emailOf = u => u.email || (u.login + EMAIL_DOMAIN);
+// 보조 연결: 관리자 로그인은 그대로 둔 채 다른 계정을 만들거나 그 계정으로 잠깐 로그인
+async function withSec(fn) {
+  const sec = F.initializeApp(firebaseConfig, 'sec-' + Date.now() + Math.random());
   try {
     const sa = F.getAuth(sec);
     if (EMU) F.connectAuthEmulator(sa, 'http://127.0.0.1:9099', { disableWarnings: true });
-    const cred = await F.signInWithEmailAndPassword(sa, login + EMAIL_DOMAIN, pw);
-    await fn(cred.user);
-    try { await F.signOut(sa); } catch (e) {}
+    return await fn(sa);
   } finally { F.deleteApp(sec); }
 }
-function knownPw(u) {
-  const pw = secrets.get(u.uid);
-  if (pw) return pw;
-  return prompt(`${u.login} 의 현재 비밀번호가 보관되어 있지 않습니다(이전에 만든 계정).\n현재 비밀번호를 입력하세요. 모르면 [취소] 후 새 아이디로 등록하세요.`) || null;
+const asUser = (email, pw, fn) => withSec(async sa => {
+  const c = await F.signInWithEmailAndPassword(sa, email, pw); await fn(c.user); try { await F.signOut(sa); } catch (e) {}
+});
+// 로그인 계정 만들기. 같은 아이디의 예전 로그인 정보가 남아 있으면 뒤에 번호를 붙인 주소로 만듦
+const createAuth = (login, pw) => withSec(async sa => {
+  for (const email of [login + EMAIL_DOMAIN, `${login}.${Date.now().toString(36)}${EMAIL_DOMAIN}`]) {
+    try { const c = await F.createUserWithEmailAndPassword(sa, email, pw); try { await F.signOut(sa); } catch (e) {} return { uid: c.user.uid, email }; }
+    catch (e) { if (e.code !== 'auth/email-already-in-use') throw e; }
+  }
+  throw new Error('계정을 만들 수 없습니다');
+});
+async function registerUser(d) {
+  const { uid, email } = await createAuth(d.login, d.pw);
+  const b = F.writeBatch(db);
+  b.set(F.doc(db, 'users', uid), { login: d.login, name: d.name, dept: d.dept || '', role: d.role === 'admin' ? 'admin' : 'user',
+    canVerify: !!d.canVerify, active: true, mustChangePw: false, email, createdAt: F.serverTimestamp() });
+  b.set(F.doc(db, 'userSecrets', uid), { pw: d.pw, login: d.login });
+  b.set(F.doc(db, 'logins', d.login), { email, uid });
+  await b.commit();
 }
+// 앱에서 사용자 완전히 지우기 (로그인 정보는 비밀번호를 알면 함께 삭제)
+async function removeUser(u, keepLogin) {
+  const pw = secrets.get(u.uid);
+  if (pw) { try { await asUser(emailOf(u), pw, user => user.delete()); } catch (e) {} }
+  const b = F.writeBatch(db);
+  b.delete(F.doc(db, 'users', u.uid)); b.delete(F.doc(db, 'userSecrets', u.uid));
+  if (!keepLogin) b.delete(F.doc(db, 'logins', u.login));
+  await b.commit();
+}
+const cleaned = new Set();
 function renderUsers() {
   if (!me || me.role !== 'admin') return;
-  const us = lastUsers.slice().sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
-  const del = us.filter(u => u.deleted).length;
+  // 예전 버전에서 '삭제됨'으로 남겨 둔 사용자는 자동으로 완전 삭제
+  lastUsers.filter(u => u.deleted && !cleaned.has(u.uid)).forEach(u => { cleaned.add(u.uid); removeUser(u).catch(() => {}); });
+  const us = lastUsers.filter(u => !u.deleted).sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
   const btn = (attr, uid, label, extra = '') => `<button class="btn sec" ${attr}="${uid}" ${extra}>${label}</button>`;
-  $('#userTbl').innerHTML = us.filter(u => showDeleted || !u.deleted).map(u => `<div class="ucard${u.deleted ? ' del' : ''}">
+  $('#userTbl').innerHTML = us.map(u => `<div class="ucard">
       <div class="uhead"><b>${esc(u.name)}</b> <span class="legend">${esc(u.login)}${u.dept ? ' · ' + esc(u.dept) : ''} · ${u.role === 'admin' ? '관리자' : '일반'}</span>
-        <span class="ust">${u.deleted ? '삭제됨' : u.active ? '사용' : '<span style="color:var(--bad)">중지</span>'}</span></div>
-      ${u.deleted ? '' : `<div class="ubtns">
+        <span class="ust">${u.active ? '사용' : '<span style="color:var(--bad)">중지</span>'}</span></div>
+      <div class="ubtns">
         <button class="btn ${u.canVerify ? '' : 'sec'}" data-cv="${u.uid}" data-v="${u.canVerify ? 0 : 1}">${u.canVerify ? '✔ 팀장(확인)' : '확인권한 없음'}</button>
         ${secrets.has(u.uid) ? btn('data-see', u.uid, '👁 비번보기') : ''}
         ${btn('data-pw', u.uid, '비번변경')}
         ${u.uid === me.uid ? '' : btn('data-uid', u.uid, u.active ? '사용중지' : '사용재개', `data-v="${u.active ? 0 : 1}"`) + `<button class="btn" style="background:var(--bad)" data-rm="${u.uid}">삭제</button>`}
-      </div>`}</div>`).join('')
-    + (del ? `<button class="btn sec" style="padding:5px 8px;margin-top:6px" id="toggleDel">${showDeleted ? '삭제된 사용자 숨기기' : `삭제된 사용자 ${del}명 보기`}</button>` : '');
+      </div></div>`).join('');
   const byId = id => lastUsers.find(u => u.uid === id);
-  $('#toggleDel') && ($('#toggleDel').onclick = () => { showDeleted = !showDeleted; renderUsers(); });
   $('#userTbl').querySelectorAll('[data-see]').forEach(b => b.onclick = () => {
     const u = byId(b.dataset.see); alert(`${u.name} (${u.login})\n비밀번호: ${secrets.get(u.uid)}`);
   });
@@ -930,33 +956,26 @@ function renderUsers() {
   });
   $('#userTbl').querySelectorAll('[data-pw]').forEach(b => b.onclick = async () => {
     const u = byId(b.dataset.pw);
+    if (u.uid === me.uid && !secrets.has(u.uid)) return showPw(false);   // 본인: 메뉴의 비밀번호 변경 화면
     const npw = prompt(`${u.name} (${u.login}) 의 새 비밀번호 (6자 이상)`);
     if (!npw) return;
     if (npw.length < 6) return toast('비밀번호는 6자 이상이어야 합니다');
-    const cur = knownPw(u); if (!cur) return;
     try {
-      await asUser(u.login, cur, user => F.updatePassword(user, npw));
-      await F.setDoc(F.doc(db, 'userSecrets', u.uid), { pw: npw, login: u.login });
+      const cur = secrets.get(u.uid);
+      let done = false;
+      if (cur) { try { await asUser(emailOf(u), cur, user => F.updatePassword(user, npw)); done = true; } catch (e) { if (e.code !== 'auth/invalid-credential') throw e; } }
+      if (done) await F.setDoc(F.doc(db, 'userSecrets', u.uid), { pw: npw, login: u.login });
+      else {   // 비밀번호를 모르는 예전 계정: 같은 아이디·이름·권한으로 계정을 새로 만들고 예전 것은 지움 (조작 이력은 유지)
+        await registerUser({ ...u, pw: npw });
+        await removeUser(u, true);
+      }
       toast(`${u.login} 비밀번호를 변경했습니다`);
-    } catch (e) { toast(e.code === 'auth/invalid-credential' ? '현재 비밀번호가 맞지 않습니다' : errMsg(e), 5000); }
+    } catch (e) { toast(errMsg(e), 5000); }
   });
   $('#userTbl').querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => {
     const u = byId(b.dataset.rm);
-    const pw = secrets.get(u.uid);
-    if (!pw) {   // 예전에 만든 계정(비밀번호 모름): 앱에서만 삭제 → 접속 차단 + 목록에서 숨김
-      if (!confirm(`${u.name} (${u.login}) 을(를) 삭제할까요?\n바로 접속이 차단되고 목록에서 사라집니다. (조작 이력은 남습니다)\n※ 예전에 만든 계정이라 같은 아이디(${u.login})는 다시 쓸 수 없습니다.`)) return;
-      try { await F.updateDoc(F.doc(db, 'users', u.uid), { active: false, deleted: true }); toast(`${u.login} 을(를) 삭제했습니다`); }
-      catch (e) { toast(errMsg(e)); }
-      return;
-    }
-    if (!confirm(`${u.name} (${u.login}) 계정을 완전히 삭제할까요?\n삭제하면 같은 아이디로 다시 등록할 수 있습니다. (그 사람이 남긴 조작 이력은 그대로 남습니다)`)) return;
-    const cur = pw;
-    try {
-      await asUser(u.login, cur, user => user.delete());
-      await F.updateDoc(F.doc(db, 'users', u.uid), { active: false, deleted: true });
-      await F.deleteDoc(F.doc(db, 'userSecrets', u.uid));
-      toast(`${u.login} 계정을 삭제했습니다`);
-    } catch (e) { toast(e.code === 'auth/invalid-credential' ? '현재 비밀번호가 맞지 않습니다' : errMsg(e), 5000); }
+    if (!confirm(`${u.name} (${u.login}) 계정을 완전히 삭제할까요?\n목록에서 없어지고 바로 접속이 차단됩니다. 같은 아이디로 다시 등록할 수 있습니다.\n(이 사람이 남긴 조작 이력은 기록으로 남습니다)`)) return;
+    try { await removeUser(u); toast(`${u.login} 계정을 삭제했습니다`); } catch (e) { toast(errMsg(e), 5000); }
   });
 }
 $('#nuBtn').onclick = async () => {
@@ -965,24 +984,14 @@ $('#nuBtn').onclick = async () => {
   if (!/^[a-z0-9_.-]{2,30}$/.test(login)) return $('#nuErr').textContent = '아이디는 영문/숫자 2~30자로 정하세요';
   if (!name) return $('#nuErr').textContent = '이름을 입력하세요';
   if (pw.length < 6) return $('#nuErr').textContent = '비밀번호는 6자 이상이어야 합니다';
+  if (lastUsers.some(u => u.login === login && !u.deleted)) return $('#nuErr').textContent = '이미 있는 아이디입니다. 목록에서 [삭제]한 뒤 다시 등록하거나 다른 아이디를 쓰세요.';
   $('#nuBtn').disabled = true;
-  // 관리자 로그인을 유지한 채 새 계정을 만들기 위해 보조 연결을 잠깐 사용
-  const sec = F.initializeApp(firebaseConfig, 'sec-' + Date.now());
   try {
-    const sa = F.getAuth(sec);
-    if (EMU) F.connectAuthEmulator(sa, 'http://127.0.0.1:9099', { disableWarnings: true });
-    const cred = await F.createUserWithEmailAndPassword(sa, login + EMAIL_DOMAIN, pw);
-    await F.signOut(sa);
-    await F.setDoc(F.doc(db, 'users', cred.user.uid), { login, name, dept: $('#nuDept').value.trim(),
-      role: $('#nuRole').value === 'admin' ? 'admin' : 'user', canVerify: $('#nuVerify').checked,
-      active: true, mustChangePw: false, createdAt: F.serverTimestamp() });
-    await F.setDoc(F.doc(db, 'userSecrets', cred.user.uid), { pw, login });
+    await registerUser({ login, name, dept: $('#nuDept').value.trim(), role: $('#nuRole').value, canVerify: $('#nuVerify').checked, pw });
     toast(`${name}(${login}) 등록했습니다`);
     ['#nuLogin', '#nuName', '#nuDept', '#nuPw'].forEach(s => $(s).value = ''); $('#nuVerify').checked = false;
-  } catch (e) {
-    $('#nuErr').textContent = e.code === 'auth/email-already-in-use'
-      ? '이미 있는 아이디입니다. 사용자 목록에서 그 계정을 [삭제]한 뒤 다시 등록하거나, 다른 아이디(예: ' + login + '2)를 쓰세요.' : errMsg(e);
-  } finally { F.deleteApp(sec); $('#nuBtn').disabled = false; }
+  } catch (e) { $('#nuErr').textContent = errMsg(e); }
+  finally { $('#nuBtn').disabled = false; }
 };
 
 /* ---------- 관리자: 엑셀 불러오기 ---------- */

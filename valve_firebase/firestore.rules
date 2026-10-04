@@ -53,7 +53,15 @@ service cloud.firestore {
         // 본인: 비밀번호 변경 후 '변경 필요' 표시만 끌 수 있음
         || (signedIn() && uid == request.auth.uid
             && onlyChanged(['mustChangePw']) && request.resource.data.mustChangePw == false);
-      allow delete: if false;
+      allow delete: if isAdmin() && uid != request.auth.uid;   // 관리자: 다른 사용자 완전 삭제
+    }
+
+    // 아이디 → 로그인 주소 (로그인 화면에서 읽음, 관리자만 기록)
+    match /logins/{login} {
+      allow read: if true;
+      allow create, update: if isAdmin() && request.resource.data.keys().hasOnly(['email', 'uid'])
+        && request.resource.data.email is string;
+      allow delete: if isAdmin();
     }
 
     // 사용자 비밀번호 보관함: 관리자만 읽기/삭제, 쓰기는 관리자 또는 본인(비밀번호 변경 시)

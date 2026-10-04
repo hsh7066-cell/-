@@ -92,8 +92,14 @@ await t("kim reads own secret blocked", getDoc(doc(K, "userSecrets/kim")), false
 await t("lee reads kim secret blocked", getDoc(doc(L, "userSecrets/kim")), false);
 await t("kim updates own secret", setDoc(doc(K, "userSecrets/kim"), { pw: "newpw12", login: "kim" }), true);
 await t("lee writes kim secret blocked", setDoc(doc(L, "userSecrets/kim"), { pw: "hacked1", login: "kim" }), false);
+await t("admin writes login map", setDoc(doc(A, "logins/kim"), { email: "kim@valve.local", uid: "kim" }), true);
+await t("kim writes login map blocked", setDoc(doc(K, "logins/kim"), { email: "x@valve.local", uid: "kim" }), false);
+await t("anyone reads login map", getDoc(doc(env.unauthenticatedContext().firestore(), "logins/kim")), true);
+await t("kim deletes user lee blocked", deleteDoc(doc(K, "users/lee")), false);
+await t("admin deletes self blocked", deleteDoc(doc(A, "users/admin")), false);
 await t("kim deletes event", deleteDoc(doc(K, "events/x")), false);
 await t("admin deletes event", deleteDoc(doc(A, "events/x")), true);
+await t("admin deletes user bad-free", deleteDoc(doc(A, "users/nobody")), true);
 await t("admin deactivates kim", updateDoc(doc(A, "users/kim"), { active: false }), true);
 await t("deactivated kim reads valve", getDoc(doc(K, "valves/v1")), false);
 console.log(`passed ${pass}, failed ${fail}`);
