@@ -30,6 +30,7 @@
     <label>비밀번호</label><input id="lgPw" type="password" autocomplete="current-password">
     <div class="err" id="lgErr"></div>
     <button class="btn full" id="lgBtn">로그인</button>
+    <p class="legend" id="verTxt" style="text-align:center;margin:10px 0 0"></p>
   </div>
   <div class="box center setup hidden" id="setupBox">
     <h3 style="margin-top:0">최초 설정: 관리자 계정 만들기</h3>
@@ -150,7 +151,7 @@
           비밀번호는 관리자만 볼 수 있게 보관되어, 아래 목록에서 보기·변경·계정 삭제를 할 수 있습니다.</p>
       </div>
       <div class="box">
-        <h3 style="margin-top:0">사용자 목록</h3>
+        <h3 style="margin-top:0">사용자 목록 <span class="legend" id="verTxt2"></span></h3>
         <div id="userTbl"></div>
       </div>
     </section>
@@ -180,6 +181,7 @@
 import * as F from './vendor/firebase.js';
 import { firebaseConfig } from './firebase-config.js';
 
+const APP_VERSION = '2026-10-04 v2';   // 화면 버전 (메뉴·로그인 화면에 표시)
 const EMAIL_DOMAIN = '@valve.local';   // 아이디 → 로그인용 이메일 형식 (실제 메일은 보내지 않음)
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -209,6 +211,7 @@ const ERR = {
 };
 const errMsg = e => ERR[e.code] || e.message || String(e);
 
+$('#verTxt').textContent = '버전 ' + APP_VERSION; $('#verTxt2').textContent = '(버전 ' + APP_VERSION + ')';
 if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes('여기에')) { show('#vConfig'); throw new Error('config'); }
 
 const app = F.initializeApp(firebaseConfig);
@@ -317,7 +320,7 @@ function closeSheet(id) {
 }
 window.addEventListener('popstate', () => { const top = sheetStack[sheetStack.length - 1]; if (top) hideSheet(top); });
 
-$('#menuBtn').onclick = () => { $('#menuInfo').textContent = `${me.name} (${me.login}) · ${me.role === 'admin' ? '관리자' : '일반'}`; openSheet('menu'); };
+$('#menuBtn').onclick = () => { $('#menuInfo').textContent = `${me.name} (${me.login}) · ${me.role === 'admin' ? '관리자' : '일반'} · 버전 ${APP_VERSION}`; openSheet('menu'); };
 $('#mClose').onclick = () => closeSheet('menu');
 $('#mPw').onclick = () => { closeSheet('menu'); showPw(false); };
 $('#mOut').onclick = () => { closeSheet('menu'); F.signOut(auth); };
