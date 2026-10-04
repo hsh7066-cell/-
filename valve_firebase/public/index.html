@@ -139,15 +139,15 @@
         </div>
         <div class="row">
           <div><label>부서</label><input id="nuDept" placeholder="예: 운영부"></div>
-          <div><label>임시 비밀번호(6자 이상)</label><input id="nuPw"></div>
+          <div><label>비밀번호(6자 이상)</label><input id="nuPw"></div>
         </div>
         <label>권한</label>
         <select id="nuRole"><option value="user">일반</option><option value="admin">관리자</option></select>
         <label class="check"><input type="checkbox" id="nuVerify"><span>확인(검증) 권한 — 운영부 팀장 등 현장 확인 책임자만 체크</span></label>
         <div class="err" id="nuErr"></div>
         <button class="btn" id="nuBtn">등록</button>
-        <p class="legend">등록한 사람은 첫 로그인 때 비밀번호를 직접 바꾸게 됩니다.
-          비밀번호를 잊은 사람은 '사용중지' 후 새 아이디(예: kim2)로 다시 등록하세요.</p>
+        <p class="legend">여기서 정한 비밀번호로 바로 로그인합니다(첫 로그인 때 변경 없음).
+          비밀번호는 관리자만 볼 수 있게 보관되어, 아래 목록에서 보기·변경·계정 삭제를 할 수 있습니다.</p>
       </div>
       <div class="box">
         <h3 style="margin-top:0">사용자 목록</h3>
@@ -231,7 +231,6 @@ F.onAuthStateChanged(auth, user => {
     const first = !me;
     if (!snap.exists() || !snap.data().active) { me = null; stopData(); return show('#vDenied'); }
     me = { uid: user.uid, ...snap.data() };
-    if (me.mustChangePw) return showPw(true);
     if (first || $('#vApp').classList.contains('hidden')) startApp();
   }, () => show('#vDenied')));
 });
@@ -262,6 +261,7 @@ $('#suBtn').onclick = async () => {
     const b = F.writeBatch(db);
     b.set(F.doc(db, 'users', cred.user.uid), { login, name, dept: '', role: 'admin', active: true, mustChangePw: false, createdAt: F.serverTimestamp() });
     b.set(F.doc(db, 'meta', 'setup'), { adminUid: cred.user.uid, createdAt: F.serverTimestamp() });
+    b.set(F.doc(db, 'userSecrets', cred.user.uid), { pw, login });
     await b.commit();
     try { localStorage.setItem('vs_login', login); } catch (e) {}
     toast('관리자 계정을 만들었습니다');
@@ -283,8 +283,9 @@ $('#pwBtn').onclick = async () => {
     const u = auth.currentUser;
     await F.reauthenticateWithCredential(u, F.EmailAuthProvider.credential(u.email, $('#pwOld').value));
     await F.updatePassword(u, $('#pwNew').value);
+    await F.setDoc(F.doc(db, 'userSecrets', me.uid), { pw: $('#pwNew').value, login: me.login });   // 관리자 보관함도 갱신
     if (me.mustChangePw) await F.updateDoc(F.doc(db, 'users', me.uid), { mustChangePw: false });
-    else show('#vApp');
+    show('#vApp');
     toast('비밀번호를 변경했습니다');
   } catch (e) { $('#pwErr').textContent = e.code === 'auth/invalid-credential' ? '현재 비밀번호가 틀렸습니다' : errMsg(e); }
 };
@@ -329,7 +330,7 @@ function stopData() { clearTimeout(retryTimer); dataUnsubs.forEach(u => u()); da
 function listenError(e) {
   console.warn('listener error', e.code);
   stopData();
-  retryTimer = setTimeout(() => { if (me && me.active && !me.mustChangePw) startApp(); }, 3000);
+  retryTimer = setTimeout(() => { if (me && me.active) startApp(); }, 3000);
 }
 function startApp() {
   show('#vApp');
@@ -356,7 +357,10 @@ function startApp() {
     firstEvents = false;
     renderHist(evs);
   }, listenError));
-  if (me.role === 'admin') dataUnsubs.push(F.onSnapshot(F.collection(db, 'users'), snap => renderUsers(snap.docs.map(d => ({ uid: d.id, ...d.data() }))), listenError));
+  if (me.role === 'admin') {
+    dataUnsubs.push(F.onSnapshot(F.collection(db, 'users'), snap => { lastUsers = snap.docs.map(d => ({ uid: d.id, ...d.data() })); renderUsers(); }, listenError));
+    dataUnsubs.push(F.onSnapshot(F.collection(db, 'userSecrets'), snap => { secrets = new Map(snap.docs.map(d => [d.id, d.data().pw])); renderUsers(); }, () => {}));
+  }
 }
 window.addEventListener('online', () => $('#offline').classList.add('hidden'));
 window.addEventListener('offline', () => $('#offline').classList.remove('hidden'));
@@ -879,14 +883,42 @@ $('#tplEmpty').onclick = () => downloadTemplate(false);
 const isState = x => x === 'OPEN' || x === 'CLOSE';
 
 /* ---------- 관리자: 사용자 ---------- */
-function renderUsers(us) {
-  us.sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
-  $('#userTbl').innerHTML = '<tr><th>아이디</th><th>이름</th><th>부서</th><th>권한</th><th>확인권한</th><th>상태</th><th></th></tr>' +
-    us.map(u => `<tr><td>${esc(u.login)}</td><td>${esc(u.name)}</td><td>${esc(u.dept)}</td>
+let lastUsers = [], secrets = new Map(), showDeleted = false;
+// 다른 사람 계정으로 잠깐 로그인해서(보조 연결) 비밀번호 변경·삭제 → 관리자 로그인은 그대로 유지
+async function asUser(login, pw, fn) {
+  const sec = F.initializeApp(firebaseConfig, 'sec-' + Date.now());
+  try {
+    const sa = F.getAuth(sec);
+    if (EMU) F.connectAuthEmulator(sa, 'http://127.0.0.1:9099', { disableWarnings: true });
+    const cred = await F.signInWithEmailAndPassword(sa, login + EMAIL_DOMAIN, pw);
+    await fn(cred.user);
+    try { await F.signOut(sa); } catch (e) {}
+  } finally { F.deleteApp(sec); }
+}
+function knownPw(u) {
+  const pw = secrets.get(u.uid);
+  if (pw) return pw;
+  return prompt(`${u.login} 의 현재 비밀번호가 보관되어 있지 않습니다(이전에 만든 계정).\n현재 비밀번호를 입력하세요. 모르면 [취소] 후 새 아이디로 등록하세요.`) || null;
+}
+function renderUsers() {
+  if (!me || me.role !== 'admin') return;
+  const us = lastUsers.slice().sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
+  const del = us.filter(u => u.deleted).length;
+  const btn = (attr, uid, label, extra = '') => `<button class="btn sec" style="padding:5px 8px;margin:1px" ${attr}="${uid}" ${extra}>${label}</button>`;
+  $('#userTbl').innerHTML = '<tr><th>아이디</th><th>이름</th><th>부서</th><th>권한</th><th>확인권한</th><th>비밀번호</th><th>상태</th><th></th></tr>' +
+    us.filter(u => showDeleted || !u.deleted).map(u => `<tr${u.deleted ? ' style="opacity:.5"' : ''}><td>${esc(u.login)}</td><td>${esc(u.name)}</td><td>${esc(u.dept)}</td>
       <td>${u.role === 'admin' ? '관리자' : '일반'}</td>
-      <td><button class="btn ${u.canVerify ? '' : 'sec'}" style="padding:5px 8px" data-cv="${u.uid}" data-v="${u.canVerify ? 0 : 1}">${u.canVerify ? '✔ 팀장(확인)' : '없음'}</button></td>
-      <td>${u.active ? (u.mustChangePw ? '첫 로그인 전' : '사용') : '<span style="color:var(--bad)">중지</span>'}</td>
-      <td>${u.uid === me.uid ? '' : `<button class="btn sec" style="padding:5px 8px" data-uid="${u.uid}" data-v="${u.active ? 0 : 1}">${u.active ? '사용중지' : '사용재개'}</button>`}</td></tr>`).join('');
+      <td><button class="btn ${u.canVerify ? '' : 'sec'}" style="padding:5px 8px" data-cv="${u.uid}" data-v="${u.canVerify ? 0 : 1}" ${u.deleted ? 'disabled' : ''}>${u.canVerify ? '✔ 팀장(확인)' : '없음'}</button></td>
+      <td>${secrets.has(u.uid) ? btn('data-see', u.uid, '👁 보기') : '<span class="legend">모름</span>'}</td>
+      <td>${u.deleted ? '삭제됨' : u.active ? '사용' : '<span style="color:var(--bad)">중지</span>'}</td>
+      <td style="white-space:nowrap">${u.deleted ? '' : btn('data-pw', u.uid, '비번변경')
+        + (u.uid === me.uid ? '' : btn('data-uid', u.uid, u.active ? '사용중지' : '사용재개', `data-v="${u.active ? 0 : 1}"`) + btn('data-rm', u.uid, '삭제'))}</td></tr>`).join('')
+    + (del ? `<tr><td colspan="8"><button class="btn sec" style="padding:5px 8px" id="toggleDel">${showDeleted ? '삭제된 사용자 숨기기' : `삭제된 사용자 ${del}명 보기`}</button></td></tr>` : '');
+  const byId = id => lastUsers.find(u => u.uid === id);
+  $('#toggleDel') && ($('#toggleDel').onclick = () => { showDeleted = !showDeleted; renderUsers(); });
+  $('#userTbl').querySelectorAll('[data-see]').forEach(b => b.onclick = () => {
+    const u = byId(b.dataset.see); alert(`${u.name} (${u.login})\n비밀번호: ${secrets.get(u.uid)}`);
+  });
   $('#userTbl').querySelectorAll('[data-uid]').forEach(b => b.onclick = async () => {
     const on = b.dataset.v === '1';
     if (!on && !confirm('이 사용자를 사용중지할까요? 바로 접속이 차단됩니다.')) return;
@@ -894,6 +926,29 @@ function renderUsers(us) {
   });
   $('#userTbl').querySelectorAll('[data-cv]').forEach(b => b.onclick = async () => {
     try { await F.updateDoc(F.doc(db, 'users', b.dataset.cv), { canVerify: b.dataset.v === '1' }); } catch (e) { toast(errMsg(e)); }
+  });
+  $('#userTbl').querySelectorAll('[data-pw]').forEach(b => b.onclick = async () => {
+    const u = byId(b.dataset.pw);
+    const npw = prompt(`${u.name} (${u.login}) 의 새 비밀번호 (6자 이상)`);
+    if (!npw) return;
+    if (npw.length < 6) return toast('비밀번호는 6자 이상이어야 합니다');
+    const cur = knownPw(u); if (!cur) return;
+    try {
+      await asUser(u.login, cur, user => F.updatePassword(user, npw));
+      await F.setDoc(F.doc(db, 'userSecrets', u.uid), { pw: npw, login: u.login });
+      toast(`${u.login} 비밀번호를 변경했습니다`);
+    } catch (e) { toast(e.code === 'auth/invalid-credential' ? '현재 비밀번호가 맞지 않습니다' : errMsg(e), 5000); }
+  });
+  $('#userTbl').querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => {
+    const u = byId(b.dataset.rm);
+    if (!confirm(`${u.name} (${u.login}) 계정을 완전히 삭제할까요?\n삭제하면 같은 아이디로 다시 등록할 수 있습니다. (그 사람이 남긴 조작 이력은 그대로 남습니다)`)) return;
+    const cur = knownPw(u); if (!cur) return;
+    try {
+      await asUser(u.login, cur, user => user.delete());
+      await F.updateDoc(F.doc(db, 'users', u.uid), { active: false, deleted: true });
+      await F.deleteDoc(F.doc(db, 'userSecrets', u.uid));
+      toast(`${u.login} 계정을 삭제했습니다`);
+    } catch (e) { toast(e.code === 'auth/invalid-credential' ? '현재 비밀번호가 맞지 않습니다' : errMsg(e), 5000); }
   });
 }
 $('#nuBtn').onclick = async () => {
@@ -912,12 +967,13 @@ $('#nuBtn').onclick = async () => {
     await F.signOut(sa);
     await F.setDoc(F.doc(db, 'users', cred.user.uid), { login, name, dept: $('#nuDept').value.trim(),
       role: $('#nuRole').value === 'admin' ? 'admin' : 'user', canVerify: $('#nuVerify').checked,
-      active: true, mustChangePw: true, createdAt: F.serverTimestamp() });
+      active: true, mustChangePw: false, createdAt: F.serverTimestamp() });
+    await F.setDoc(F.doc(db, 'userSecrets', cred.user.uid), { pw, login });
     toast(`${name}(${login}) 등록했습니다`);
     ['#nuLogin', '#nuName', '#nuDept', '#nuPw'].forEach(s => $(s).value = ''); $('#nuVerify').checked = false;
   } catch (e) {
     $('#nuErr').textContent = e.code === 'auth/email-already-in-use'
-      ? '이미 있는 아이디입니다. 다른 아이디(예: ' + login + '2)를 쓰세요.' : errMsg(e);
+      ? '이미 있는 아이디입니다. 사용자 목록에서 그 계정을 [삭제]한 뒤 다시 등록하거나, 다른 아이디(예: ' + login + '2)를 쓰세요.' : errMsg(e);
   } finally { F.deleteApp(sec); $('#nuBtn').disabled = false; }
 };
 

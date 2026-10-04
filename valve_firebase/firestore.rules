@@ -56,6 +56,14 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // 사용자 비밀번호 보관함: 관리자만 읽기/삭제, 쓰기는 관리자 또는 본인(비밀번호 변경 시)
+    match /userSecrets/{uid} {
+      allow read, delete: if isAdmin();
+      allow create, update: if (isAdmin() || (signedIn() && uid == request.auth.uid))
+        && request.resource.data.keys().hasOnly(['pw', 'login'])
+        && request.resource.data.pw is string && request.resource.data.pw.size() >= 6;
+    }
+
     match /valves/{vid} {
       // 현장 조작 등록
       function isOperate() {
