@@ -181,7 +181,7 @@
 import * as F from './vendor/firebase.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '2026-10-04 v2';   // 화면 버전 (메뉴·로그인 화면에 표시)
+const APP_VERSION = '2026-10-04 v3';   // 화면 버전 (메뉴·로그인 화면에 표시)
 const EMAIL_DOMAIN = '@valve.local';   // 아이디 → 로그인용 이메일 형식 (실제 메일은 보내지 않음)
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
