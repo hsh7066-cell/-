@@ -52,7 +52,10 @@ service cloud.firestore {
                  && (request.resource.data.active != true || request.resource.data.role != 'admin')))
         // 본인: 비밀번호 변경 후 '변경 필요' 표시만 끌 수 있음
         || (signedIn() && uid == request.auth.uid
-            && onlyChanged(['mustChangePw']) && request.resource.data.mustChangePw == false);
+            && onlyChanged(['mustChangePw']) && request.resource.data.mustChangePw == false)
+        // 본인: 로그인한 기기 표식(한 기기만 접속)
+        || (signedIn() && uid == request.auth.uid
+            && onlyChanged(['session']) && request.resource.data.session is string);
       allow delete: if isAdmin() && uid != request.auth.uid;   // 관리자: 다른 사용자 완전 삭제
     }
 

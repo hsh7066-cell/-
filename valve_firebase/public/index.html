@@ -181,7 +181,7 @@
 import * as F from './vendor/firebase.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '2026-10-04 v3';   // 화면 버전 (메뉴·로그인 화면에 표시)
+const APP_VERSION = '2026-10-04 v4';   // 화면 버전 (메뉴·로그인 화면에 표시)
 const EMAIL_DOMAIN = '@valve.local';   // 아이디 → 로그인용 이메일 형식 (실제 메일은 보내지 않음)
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -225,6 +225,9 @@ let unsubs = [], firstEvents = true;
 const flashIds = new Set(), revs = new Map();
 
 /* ---------- 로그인 / 계정 상태 ---------- */
+// 한 기기만 접속: 로그인할 때 이 기기 표식을 계정에 기록. 관리자가 아닌 계정은 표식이 다른 기기로 바뀌면 자동 로그아웃
+let localSession = null, claimPending = false, kickedMsg = '';
+try { localSession = localStorage.getItem('vs_session'); } catch (e) {}
 F.onAuthStateChanged(auth, user => {
   unsubs.forEach(u => u()); unsubs = []; me = null;
   if (!user) return showLogin();
@@ -233,12 +236,18 @@ F.onAuthStateChanged(auth, user => {
     if (snap.metadata.hasPendingWrites) return;   // 서버 저장이 끝난 뒤에만 반영
     const first = !me;
     if (!snap.exists() || !snap.data().active) { me = null; stopData(); return show('#vDenied'); }
-    me = { uid: user.uid, ...snap.data() };
+    const d = snap.data();
+    if (d.role !== 'admin' && !claimPending && d.session && d.session !== localSession) {
+      kickedMsg = '다른 기기에서 같은 아이디로 로그인해서 이 기기는 로그아웃되었습니다.';
+      me = null; stopData(); return F.signOut(auth);
+    }
+    me = { uid: user.uid, ...d };
     if (first || $('#vApp').classList.contains('hidden')) startApp();
   }, () => show('#vDenied')));
 });
 async function showLogin() {
   stopData(); show('#vLogin'); $('#lgPw').value = '';
+  $('#lgErr').textContent = kickedMsg; kickedMsg = '';
   try { $('#lgId').value = localStorage.getItem('vs_login') || ''; } catch (e) {}
   try { const s = await F.getDoc(F.doc(db, 'meta', 'setup')); $('#setupBox').classList.toggle('hidden', s.exists()); }
   catch (e) { $('#setupBox').classList.add('hidden'); }
@@ -250,9 +259,14 @@ $('#lgBtn').onclick = async () => {
     // 아이디 → 로그인 주소 (다시 만든 계정은 주소 뒤에 번호가 붙어 있음)
     let email = id + EMAIL_DOMAIN;
     try { const m = await F.getDoc(F.doc(db, 'logins', id)); if (m.exists() && m.data().email) email = m.data().email; } catch (e) {}
-    await F.signInWithEmailAndPassword(auth, email, $('#lgPw').value);
+    localSession = Date.now().toString(36) + Math.random().toString(36).slice(2);
+    try { localStorage.setItem('vs_session', localSession); } catch (e) {}
+    claimPending = true;
+    const cred = await F.signInWithEmailAndPassword(auth, email, $('#lgPw').value);
+    try { await F.updateDoc(F.doc(db, 'users', cred.user.uid), { session: localSession }); } catch (e) {}
+    finally { claimPending = false; }
     try { localStorage.setItem('vs_login', id); } catch (e) {}
-  } catch (e) { $('#lgErr').textContent = errMsg(e); }
+  } catch (e) { claimPending = false; $('#lgErr').textContent = errMsg(e); }
 };
 $('#lgPw').addEventListener('keydown', e => { if (e.key === 'Enter') $('#lgBtn').click(); });
 $('#dnOut').onclick = () => F.signOut(auth);

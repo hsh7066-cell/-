@@ -23,6 +23,8 @@ await t("admin creates lee (팀장)", setDoc(doc(A, "users/lee"), { ...user("lee
 await t("canVerify must be bool", setDoc(doc(A, "users/bad"), { ...user("bad","b"), canVerify: "yes" }), false);
 await t("kim grants self canVerify", updateDoc(doc(K, "users/kim"), { canVerify: true }), false);
 await t("kim clears mustChangePw", updateDoc(doc(K, "users/kim"), { mustChangePw: false }), true);
+await t("kim sets own session", updateDoc(doc(K, "users/kim"), { session: "abc" }), true);
+await t("kim sets lee session blocked", updateDoc(doc(K, "users/lee"), { session: "abc" }), false);
 await t("kim makes self admin", updateDoc(doc(K, "users/kim"), { role: "admin" }), false);
 await t("admin deactivates self", updateDoc(doc(A, "users/admin"), { active: false }), false);
 await t("stranger reads valves", getDoc(doc(X, "valves/v1")), false);
