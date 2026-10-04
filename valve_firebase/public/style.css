@@ -96,3 +96,7 @@ code{background:#eef0f3;border-radius:4px;padding:1px 4px}
 .add-btn{width:100%;margin:4px 0 8px;padding:12px;border:2px dashed var(--brand);border-radius:10px;background:#fff;color:var(--brand);font-weight:700;cursor:pointer}
 .photo-row{display:flex;gap:8px;margin-top:6px}.photo-row .photo-btn{flex:1}
 .photos figure{margin:0}.photos figcaption{font-size:11px;color:var(--muted);line-height:1.3;margin-top:2px;word-break:break-all}
+.ucard{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:#fff}
+.ucard.del{opacity:.5}
+.uhead{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.uhead .ust{margin-left:auto;font-size:13px}
+.ubtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.ubtns .btn{padding:7px 10px;font-size:13px}

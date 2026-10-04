@@ -151,7 +151,7 @@
       </div>
       <div class="box">
         <h3 style="margin-top:0">사용자 목록</h3>
-        <div style="overflow-x:auto"><table id="userTbl"></table></div>
+        <div id="userTbl"></div>
       </div>
     </section>
   </main>
@@ -904,16 +904,17 @@ function renderUsers() {
   if (!me || me.role !== 'admin') return;
   const us = lastUsers.slice().sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
   const del = us.filter(u => u.deleted).length;
-  const btn = (attr, uid, label, extra = '') => `<button class="btn sec" style="padding:5px 8px;margin:1px" ${attr}="${uid}" ${extra}>${label}</button>`;
-  $('#userTbl').innerHTML = '<tr><th>아이디</th><th>이름</th><th>부서</th><th>권한</th><th>확인권한</th><th>비밀번호</th><th>상태</th><th></th></tr>' +
-    us.filter(u => showDeleted || !u.deleted).map(u => `<tr${u.deleted ? ' style="opacity:.5"' : ''}><td>${esc(u.login)}</td><td>${esc(u.name)}</td><td>${esc(u.dept)}</td>
-      <td>${u.role === 'admin' ? '관리자' : '일반'}</td>
-      <td><button class="btn ${u.canVerify ? '' : 'sec'}" style="padding:5px 8px" data-cv="${u.uid}" data-v="${u.canVerify ? 0 : 1}" ${u.deleted ? 'disabled' : ''}>${u.canVerify ? '✔ 팀장(확인)' : '없음'}</button></td>
-      <td>${secrets.has(u.uid) ? btn('data-see', u.uid, '👁 보기') : '<span class="legend">모름</span>'}</td>
-      <td>${u.deleted ? '삭제됨' : u.active ? '사용' : '<span style="color:var(--bad)">중지</span>'}</td>
-      <td style="white-space:nowrap">${u.deleted ? '' : btn('data-pw', u.uid, '비번변경')
-        + (u.uid === me.uid ? '' : btn('data-uid', u.uid, u.active ? '사용중지' : '사용재개', `data-v="${u.active ? 0 : 1}"`) + btn('data-rm', u.uid, '삭제'))}</td></tr>`).join('')
-    + (del ? `<tr><td colspan="8"><button class="btn sec" style="padding:5px 8px" id="toggleDel">${showDeleted ? '삭제된 사용자 숨기기' : `삭제된 사용자 ${del}명 보기`}</button></td></tr>` : '');
+  const btn = (attr, uid, label, extra = '') => `<button class="btn sec" ${attr}="${uid}" ${extra}>${label}</button>`;
+  $('#userTbl').innerHTML = us.filter(u => showDeleted || !u.deleted).map(u => `<div class="ucard${u.deleted ? ' del' : ''}">
+      <div class="uhead"><b>${esc(u.name)}</b> <span class="legend">${esc(u.login)}${u.dept ? ' · ' + esc(u.dept) : ''} · ${u.role === 'admin' ? '관리자' : '일반'}</span>
+        <span class="ust">${u.deleted ? '삭제됨' : u.active ? '사용' : '<span style="color:var(--bad)">중지</span>'}</span></div>
+      ${u.deleted ? '' : `<div class="ubtns">
+        <button class="btn ${u.canVerify ? '' : 'sec'}" data-cv="${u.uid}" data-v="${u.canVerify ? 0 : 1}">${u.canVerify ? '✔ 팀장(확인)' : '확인권한 없음'}</button>
+        ${secrets.has(u.uid) ? btn('data-see', u.uid, '👁 비번보기') : ''}
+        ${btn('data-pw', u.uid, '비번변경')}
+        ${u.uid === me.uid ? '' : btn('data-uid', u.uid, u.active ? '사용중지' : '사용재개', `data-v="${u.active ? 0 : 1}"`) + `<button class="btn" style="background:var(--bad)" data-rm="${u.uid}">삭제</button>`}
+      </div>`}</div>`).join('')
+    + (del ? `<button class="btn sec" style="padding:5px 8px;margin-top:6px" id="toggleDel">${showDeleted ? '삭제된 사용자 숨기기' : `삭제된 사용자 ${del}명 보기`}</button>` : '');
   const byId = id => lastUsers.find(u => u.uid === id);
   $('#toggleDel') && ($('#toggleDel').onclick = () => { showDeleted = !showDeleted; renderUsers(); });
   $('#userTbl').querySelectorAll('[data-see]').forEach(b => b.onclick = () => {
@@ -941,8 +942,15 @@ function renderUsers() {
   });
   $('#userTbl').querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => {
     const u = byId(b.dataset.rm);
+    const pw = secrets.get(u.uid);
+    if (!pw) {   // 예전에 만든 계정(비밀번호 모름): 앱에서만 삭제 → 접속 차단 + 목록에서 숨김
+      if (!confirm(`${u.name} (${u.login}) 을(를) 삭제할까요?\n바로 접속이 차단되고 목록에서 사라집니다. (조작 이력은 남습니다)\n※ 예전에 만든 계정이라 같은 아이디(${u.login})는 다시 쓸 수 없습니다.`)) return;
+      try { await F.updateDoc(F.doc(db, 'users', u.uid), { active: false, deleted: true }); toast(`${u.login} 을(를) 삭제했습니다`); }
+      catch (e) { toast(errMsg(e)); }
+      return;
+    }
     if (!confirm(`${u.name} (${u.login}) 계정을 완전히 삭제할까요?\n삭제하면 같은 아이디로 다시 등록할 수 있습니다. (그 사람이 남긴 조작 이력은 그대로 남습니다)`)) return;
-    const cur = knownPw(u); if (!cur) return;
+    const cur = pw;
     try {
       await asUser(u.login, cur, user => user.delete());
       await F.updateDoc(F.doc(db, 'users', u.uid), { active: false, deleted: true });
