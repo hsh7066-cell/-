@@ -80,8 +80,9 @@ service cloud.firestore {
       function isOperate() {
         let d = request.resource.data;
         return isActive() && resource.data.active == true
-          && onlyChanged(['current', 'status', 'operatedBy', 'operatedById', 'operatedAt',
+          && onlyChanged(['current', 'status', 'phase', 'operatedBy', 'operatedById', 'operatedAt',
                           'verifiedBy', 'verifiedById', 'verifiedAt', 'rev'])
+          && d.get('phase', '조작') in ['조작', '원복']
           && isState(d.current) && d.status == '확인대기'
           && d.operatedById == request.auth.uid && d.operatedBy == me().name
           && d.operatedAt == request.time
@@ -143,7 +144,7 @@ service cloud.firestore {
         && request.resource.data.ts == request.time
         && (
           // 조작/확인 이력: 같은 요청에서 해당 밸브가 실제로 바뀐 경우에만
-          (request.resource.data.kind in ['조작', '확인', '불일치']
+          (request.resource.data.kind in ['조작', '원복', '확인', '불일치']
             && get(valvePath()).data.rev + 1 == request.resource.data.rev
             && getAfter(valvePath()).data.rev == request.resource.data.rev)
           || (isAdmin() && request.resource.data.kind in ['등록', '수정', '초기화', '숨김', '엑셀반영', '수기반영'])

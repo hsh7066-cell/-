@@ -79,14 +79,14 @@
   </nav>
   <main>
     <section id="tList">
-      <div class="progress"><div id="prog"></div></div>
+      <div class="progress"><div id="prog"></div><div id="prog2"></div></div>
       <div class="legend" id="progTxt"></div>
       <div class="chips" id="chips"></div>
       <div class="filters">
         <input id="q" placeholder="밸브명/도면번호 검색" type="search">
         <select id="areaSel"></select>
       </div>
-      <div class="legend">왼쪽 띠: 회색=미조작 · 노랑=확인대기 · 초록=확인완료 · 빨강=불일치/요구상태와 다름</div>
+      <div class="legend">왼쪽 띠: 회색=미조작 · 노랑=확인대기 · 초록=조작완료 · 파랑=원복완료 · 빨강=불일치/요구상태와 다름</div>
       <button class="add-btn hidden" id="addValveBtn">+ 밸브 추가 (수기 등록)</button>
       <div id="list"></div>
     </section>
@@ -181,7 +181,7 @@
 import * as F from './vendor/firebase.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '2026-10-04 v4';   // 화면 버전 (메뉴·로그인 화면에 표시)
+const APP_VERSION = '2026-10-05 v5';   // 화면 버전 (메뉴·로그인 화면에 표시)
 const EMAIL_DOMAIN = '@valve.local';   // 아이디 → 로그인용 이메일 형식 (실제 메일은 보내지 않음)
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -386,12 +386,18 @@ window.addEventListener('online', () => $('#offline').classList.add('hidden'));
 window.addEventListener('offline', () => $('#offline').classList.remove('hidden'));
 
 /* ---------- 목록 ---------- */
-const isDiff = v => v.status !== '미조작' && v.target && v.current !== v.target;
+// 단계: 조작(작업 시작, 조작요청대로) → 원복(작업 끝, 원래대로). 밸브마다 따로 진행
+const opp = s => s === 'OPEN' ? 'CLOSE' : s === 'CLOSE' ? 'OPEN' : '';
+const restoreOf = v => v.restore || opp(v.target);          // 원복상태: 비어 있으면 조작요청의 반대
+const isRestore = v => v.phase === '원복';
+const expectOf = v => isRestore(v) ? restoreOf(v) : v.target; // 지금 단계에서 있어야 할 상태
+const isDiff = v => v.status !== '미조작' && expectOf(v) && v.current !== expectOf(v);
+const statusLabel = v => v.status === '확인완료' ? (isRestore(v) ? '원복완료' : '조작완료') : v.status;
 function cls(v) {
   if (v.status === '불일치') return 's-bad';
   if (isDiff(v)) return 's-diff';
   if (v.status === '확인대기') return 's-wait';
-  if (v.status === '확인완료') return 's-ok';
+  if (v.status === '확인완료') return isRestore(v) ? 's-restore' : 's-ok';
   return '';
 }
 const FILTERS = {
@@ -400,12 +406,14 @@ const FILTERS = {
   '확인대기': v => v.status === '확인대기',
   '불일치': v => v.status === '불일치',
   '요구상태와 다름': isDiff,
-  '확인완료': v => v.status === '확인완료' && v.current === v.target,
+  '조작완료': v => v.status === '확인완료' && !isRestore(v) && v.current === v.target,
+  '원복완료': v => v.status === '확인완료' && isRestore(v) && v.current === restoreOf(v),
 };
 function render() {
-  const total = valves.length, done = valves.filter(FILTERS['확인완료']).length;
+  const total = valves.length, done = valves.filter(FILTERS['조작완료']).length, back = valves.filter(FILTERS['원복완료']).length;
   $('#prog').style.width = total ? (done / total * 100) + '%' : 0;
-  $('#progTxt').textContent = `요구상태대로 조작·확인 완료 ${done} / ${total}`;
+  $('#prog2').style.width = total ? (back / total * 100) + '%' : 0;
+  $('#progTxt').textContent = `조작완료 ${done} · 원복완료 ${back} / 전체 ${total}`;
   $('#chips').innerHTML = Object.keys(FILTERS).map(k =>
     `<button class="chip ${k === filter ? 'on' : ''}" data-f="${k}">${k}<b>${valves.filter(FILTERS[k]).length}</b></button>`).join('');
   $('#chips').querySelectorAll('.chip').forEach(c => c.onclick = () => { filter = c.dataset.f; render(); });
@@ -420,9 +428,9 @@ function render() {
     if (v.area !== lastArea) { html += `<div class="area">${esc(v.area || '구역 없음')}</div>`; lastArea = v.area; }
     html += `<div class="valve ${cls(v)} ${flashIds.has(v.id) ? 'flash' : ''}" data-id="${v.id}">
       <div class="main"><div class="tag">${esc(v.seq)}. ${esc(v.tag)}${v.photoCount ? `<span class="cam">📷${v.photoCount}</span>` : ''}</div>
-        <div class="sub"><span class="badge b-${esc(v.status)}">${esc(v.status)}</span>
+        <div class="sub"><span class="badge b-${esc(statusLabel(v))}">${esc(statusLabel(v))}</span>
           ${v.operatedBy ? esc(v.operatedBy) + ' ' + esc(fmt(v.operatedAt).slice(5, 16)) : ''}${v.note ? ' · ' + esc(v.note) : ''}</div></div>
-      <div class="states"><span>요구 <span class="st outline ${esc(v.target)}">${esc(v.target || '-')}</span></span>
+      <div class="states"><span>${isRestore(v) ? '원복' : '요구'} <span class="st outline ${esc(expectOf(v))}">${esc(expectOf(v) || '-')}</span></span>
         <span>현재 <span class="st ${esc(v.current)}">${esc(v.current)}</span></span></div></div>`;
   }
   $('#list').innerHTML = html || `<div class="box legend">${valves.length ? '해당하는 밸브가 없습니다.' : '등록된 밸브가 없습니다. 관리자가 [관리자] 탭에서 엑셀을 불러오세요.'}</div>`;
@@ -455,11 +463,12 @@ async function openDetail(id) {
       <div><h2>${esc(v.tag)}</h2><div class="legend">${esc(v.area)}${v.pid ? ' · ' + esc(v.pid) : ''} · 순번 ${esc(v.seq)}</div></div>
       <button class="btn sec" id="dClose">닫기</button></div>
     <div class="bigstate">
-      <div><small>요구상태(작업요청)</small><span class="st outline ${esc(v.target)}">${esc(v.target || '-')}</span></div>
+      <div><small>단계: <b>${isRestore(v) ? '원복' : '조작'}</b></small><span class="st outline ${esc(expectOf(v))}">${esc(expectOf(v) || '-')}</span>
+        <div class="legend" style="margin:4px 0 0">조작 ${esc(v.target || '-')} → 원복 ${esc(restoreOf(v) || '-')}</div></div>
       <div><small>현재상태</small><span class="st ${esc(v.current)}">${esc(v.current)}</span></div>
-      <div><small>검증</small><span class="badge b-${esc(v.status)}" style="font-size:14px">${esc(v.status)}</span></div>
+      <div><small>검증</small><span class="badge b-${esc(statusLabel(v))}" style="font-size:14px">${esc(statusLabel(v))}</span></div>
     </div>
-    ${isDiff(v) ? `<div class="warn" style="border-color:#fda29b;background:#fff1f3">⚠ 현재상태가 요구상태(${esc(v.target)})와 다릅니다.</div>` : ''}
+    ${isDiff(v) ? `<div class="warn" style="border-color:#fda29b;background:#fff1f3">⚠ 현재상태가 ${isRestore(v) ? '원복상태' : '요구상태'}(${esc(expectOf(v))})와 다릅니다.</div>` : ''}
     <div class="kv">
       <div>요청사항</div><div>${esc(v.note || '-')}</div>
       <div>작업책임자</div><div>${esc(v.owner || '-')} ${esc(v.phone)}</div>
@@ -470,11 +479,12 @@ async function openDetail(id) {
       <div>확인</div><div>${v.verifiedBy ? esc(v.verifiedBy) + ' · ' + esc(fmt(v.verifiedAt)) : '-'}</div>
     </div>
     <div class="section"><h3>① 현장 조작 등록 (밸브를 실제로 돌린 뒤 누르세요)</h3>
-      <div class="ops">
-        <button class="o ${v.target === 'OPEN' ? 'target' : ''}" data-s="OPEN">OPEN 했음</button>
-        <button class="c ${v.target === 'CLOSE' ? 'target' : ''}" data-s="CLOSE">CLOSE 했음</button>
+      <div class="ops">${v.target ? `
+        <button class="${v.target === 'OPEN' ? 'o' : 'c'} ${!isRestore(v) ? 'target' : ''}" data-s="${v.target}" data-p="조작">조작: ${v.target} 했음</button>
+        <button class="${restoreOf(v) === 'OPEN' ? 'o' : 'c'} ${isRestore(v) ? 'target' : ''}" data-s="${restoreOf(v)}" data-p="원복">원복: ${restoreOf(v)} 했음</button>` : `
+        <button class="o" data-s="OPEN" data-p="조작">OPEN 했음</button><button class="c" data-s="CLOSE" data-p="조작">CLOSE 했음</button>`}
       </div>
-      <div class="legend">노란 테두리 = 작업요청 상태</div>
+      <div class="legend">작업 시작 때는 <b>[조작]</b>, 정비가 끝나 원래대로 돌릴 때는 <b>[원복]</b> · 노란 테두리 = 지금 단계</div>
     </div>
     ${canVerify ? `<div class="section"><h3>② 확인(검증) — 확인 권한자(운영부 팀장)가 현장에서 직접 보고 누르세요</h3>
       ${mine ? `<div class="warn">본인이 조작한 밸브입니다. 다른 확인 권한자가 확인해야 합니다.</div>`
@@ -482,13 +492,15 @@ async function openDetail(id) {
       <div class="warn">${esc(v.operatedBy)} 님이 <b>${esc(v.current)}</b>(으)로 조작했다고 등록했습니다. 실제 밸브도 ${esc(v.current)} 상태입니까?</div>
       <input id="vMemo" placeholder="메모 (불일치일 때 필수: 실제 상태/사유)">
       <div class="row" style="margin-top:8px">
-        <button class="btn" id="vOk" style="background:var(--ok)">맞음 (확인완료)</button>
+        <button class="btn" id="vOk" style="background:${isRestore(v) ? 'var(--restore)' : 'var(--ok)'}">맞음 (${isRestore(v) ? '원복완료' : '조작완료'})</button>
         <button class="btn" id="vNg" style="background:var(--bad)">다름 (불일치)</button>
       </div>`}</div>` : ''}
     ${isAdmin ? `<div class="section"><h3>관리자: 밸브 정보 수정</h3>
-      <div class="row"><div><label>요구상태</label><select id="eTarget">
+      <div class="row"><div><label>요구상태(조작요청)</label><select id="eTarget">
         ${['OPEN', 'CLOSE', ''].map(s => `<option value="${s}" ${v.target === s ? 'selected' : ''}>${s || '(없음)'}</option>`).join('')}</select></div>
-        <div><label>도면번호</label><input id="ePid" value="${esc(v.pid)}"></div></div>
+        <div><label>원복상태</label><select id="eRestore">
+        ${['', 'OPEN', 'CLOSE'].map(s => `<option value="${s}" ${(v.restore || '') === s ? 'selected' : ''}>${s || '자동(조작요청의 반대)'}</option>`).join('')}</select></div></div>
+      <label>도면번호</label><input id="ePid" value="${esc(v.pid)}">
       <div class="row"><div><label>구역</label><input id="eArea" value="${esc(v.area)}"></div>
         <div><label>밸브명</label><input id="eTag" value="${esc(v.tag)}"></div></div>
       <label>요청사항</label><input id="eNote" value="${esc(v.note)}">
@@ -509,7 +521,7 @@ async function openDetail(id) {
     </div>`;
   openSheet('detail');
   $('#dClose').onclick = closeDetail;
-  $('#detailBody').querySelectorAll('.ops button').forEach(b => b.onclick = () => confirmOperate(v, b.dataset.s));
+  $('#detailBody').querySelectorAll('.ops button').forEach(b => b.onclick = () => confirmOperate(v, b.dataset.s, b.dataset.p));
   if (canVerify && !mine && iCanVerify) { $('#vOk').onclick = () => doVerify(v, true); $('#vNg').onclick = () => doVerify(v, false); }
   ['phCam', 'phAlbum'].forEach(id => $('#' + id).onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
@@ -519,7 +531,7 @@ async function openDetail(id) {
   });
   $('#detailBody').querySelectorAll('.photos img').forEach(im => im.onclick = () => showPhoto(im.dataset.pid, im.title, v));
   if (isAdmin) {
-    $('#eSave').onclick = () => adminEdit(v, { target: $('#eTarget').value, pid: $('#ePid').value.trim(), area: $('#eArea').value.trim(), tag: $('#eTag').value.trim(), note: $('#eNote').value.trim() });
+    $('#eSave').onclick = () => adminEdit(v, { target: $('#eTarget').value, restore: $('#eRestore').value, pid: $('#ePid').value.trim(), area: $('#eArea').value.trim(), tag: $('#eTag').value.trim(), note: $('#eNote').value.trim() });
     $('#eReset').onclick = () => confirm(`${v.tag} 상태를 '미확인/미조작'으로 초기화할까요? (이력은 남습니다)`) && adminEdit(v, null);
     $('#eHide').onclick = async () => {
       if (!confirm(`${v.area} / ${v.tag} 를 목록에서 삭제할까요?\n(기록 보관을 위해 숨김 처리되며, 이력은 남습니다)`)) return;
@@ -548,11 +560,12 @@ async function changeValve(v, makeUpdate, event) {
       ts: F.serverTimestamp(), rev: cur.rev + 1, fromState: '', toState: '', memo: '', ...event });
   });
 }
-function confirmOperate(v, state) {
+function confirmOperate(v, state, phase = '조작') {
   busy = true;
-  const mismatch = v.target && v.target !== state;
+  const mismatch = phase === '조작' && v.target && v.target !== state;
   $('#detailBody').innerHTML = `
-    <h2>조작 등록 확인</h2>
+    <h2>${phase} 등록 확인</h2>
+    ${phase === '원복' ? '<div class="warn" style="border-color:#93c5fd;background:#eff6ff">정비가 끝나 이 밸브를 <b>원래 상태로 되돌리는</b> 등록입니다.</div>' : ''}
     <div class="bigstate"><div><small>밸브</small><b style="font-size:17px">${esc(v.tag)}</b><div class="legend">${esc(v.area)}</div></div>
       <div><small>변경</small><span class="st ${esc(v.current)}">${esc(v.current)}</span> → <span class="st ${state}">${state}</span></div></div>
     ${mismatch ? `<div class="warn" style="border-color:#fda29b;background:#fff1f3">⚠ 작업요청 상태는 <b>${esc(v.target)}</b> 입니다. 정말 ${state}(으)로 등록합니까?</div>` : ''}
@@ -577,15 +590,15 @@ function confirmOperate(v, state) {
   $('#opGo').onclick = async () => {
     $('#opGo').disabled = true;
     try {
-      await changeValve(v, cur => ({ current: state, status: '확인대기', operatedBy: me.name, operatedById: me.uid,
+      await changeValve(v, cur => ({ current: state, status: '확인대기', phase, operatedBy: me.name, operatedById: me.uid,
         operatedAt: F.serverTimestamp(), verifiedBy: '', verifiedById: '', verifiedAt: null }),
-        { kind: '조작', fromState: v.current, toState: state, memo: $('#opMemo').value.trim() });
+        { kind: phase, fromState: v.current, toState: state, memo: $('#opMemo').value.trim() });
       if (photo) {
         $('#opErr').textContent = '사진 올리는 중...';
-        try { await uploadPhoto(v, photo, state + ' 조작', $('#opDesc').value.trim(), fromCam); }
+        try { await uploadPhoto(v, photo, state + ' ' + phase, $('#opDesc').value.trim(), fromCam); }
         catch (pe) { toast('조작은 등록됐지만 사진 올리기에 실패했습니다: ' + errMsg(pe), 6000); }
       }
-      toast(`${v.tag} → ${state} 등록됨. 팀장 확인이 필요합니다.`);
+      toast(`${v.tag} ${phase} → ${state} 등록됨. 팀장 확인이 필요합니다.`);
       busy = false; openDetail(v.id);
     } catch (e) {
       $('#opErr').textContent = errMsg(e);
@@ -607,6 +620,7 @@ $('#addValveBtn').onclick = () => {
     <label>기기명(밸브명) *</label><input id="avTag" placeholder="예: HV-305">
     <div class="row"><div><label>조작요청(요구상태) *</label><select id="avTarget"><option>CLOSE</option><option>OPEN</option></select></div>
       <div><label>현재상태</label><select id="avCur"><option value="">미확인</option><option>OPEN</option><option>CLOSE</option></select></div></div>
+    <label>원복상태</label><select id="avRestore"><option value="">자동(조작요청의 반대)</option><option>OPEN</option><option>CLOSE</option></select>
     <div class="row"><div><label>도면번호</label><input id="avPid"></div><div><label>작업책임자</label><input id="avOwner"></div></div>
     <label>요청사항</label><input id="avNote">
     <div class="row"><div><label>개방일시</label><input id="avStart" placeholder="2026-10-05 09:00"></div>
@@ -619,7 +633,7 @@ $('#addValveBtn').onclick = () => {
   $('#avClose').onclick = closeDetail;
   $('#avSave').onclick = async () => {
     const r = { seq: +$('#avSeq').value || nextSeq, area: $('#avArea').value.trim(), tag: $('#avTag').value.trim(), pid: $('#avPid').value.trim(),
-      target: $('#avTarget').value, note: $('#avNote').value.trim(), owner: $('#avOwner').value.trim(), phone: '',
+      target: $('#avTarget').value, restore: $('#avRestore').value, note: $('#avNote').value.trim(), owner: $('#avOwner').value.trim(), phone: '',
       workStart: $('#avStart').value.trim(), workEnd: $('#avEnd').value.trim(), drawing: '', drawingLoc: '', remark: $('#avRemark').value.trim() };
     const cur = $('#avCur').value;
     if (!r.area || !r.tag) return $('#avErr').textContent = '구역과 기기명은 꼭 입력하세요';
@@ -777,13 +791,13 @@ async function adminEdit(v, fields) {
   try {
     if (fields) {
       if (!fields.tag) return toast('밸브명은 비울 수 없습니다');
-      const label = { target: '요구상태', pid: '도면번호', area: '구역', tag: '밸브명', note: '요청사항' };
+      const label = { target: '요구상태', restore: '원복상태', pid: '도면번호', area: '구역', tag: '밸브명', note: '요청사항' };
       const changes = Object.keys(fields).filter(k => (v[k] || '') !== fields[k]);
       if (!changes.length) return toast('바뀐 내용이 없습니다');
       await changeValve(v, () => Object.fromEntries(changes.map(k => [k, fields[k]])),
         { kind: '수정', memo: changes.map(k => `${label[k]}: ${v[k] || '-'} → ${fields[k] || '-'}`).join('; ') });
     } else {
-      await changeValve(v, () => ({ current: '미확인', status: '미조작', operatedBy: '', operatedById: '', operatedAt: null,
+      await changeValve(v, () => ({ current: '미확인', status: '미조작', phase: '조작', operatedBy: '', operatedById: '', operatedAt: null,
         verifiedBy: '', verifiedById: '', verifiedAt: null }), { kind: '초기화', fromState: v.current, toState: '미확인' });
     }
     toast('저장했습니다');
@@ -799,7 +813,7 @@ function renderHist(evs) {
     ${adm ? `<button class="btn sec" data-del="${e.id}" style="position:absolute;right:8px;top:8px;padding:4px 8px">🗑</button>` : ''}
     <div class="legend" style="margin:0">${esc(fmt(e.ts))} · ${esc(e.userName)}</div>
     <b>${esc(e.tag)}</b> <span class="legend">${esc(e.area)}</span><br>
-    <span class="badge b-${e.kind === '확인' ? '확인완료' : e.kind === '불일치' ? '불일치' : ['조작', '엑셀반영', '수기반영'].includes(e.kind) ? '확인대기' : '미조작'}">${e.kind === '사진' ? '📷 ' : ''}${esc(e.kind)}</span>
+    <span class="badge b-${e.kind === '확인' ? '확인완료' : e.kind === '불일치' ? '불일치' : ['조작', '원복', '엑셀반영', '수기반영'].includes(e.kind) ? '확인대기' : '미조작'}">${e.kind === '사진' ? '📷 ' : ''}${esc(e.kind)}</span>
     ${e.fromState || e.toState ? esc(e.fromState || '') + ' → ' + esc(e.toState || '') : ''} ${e.memo ? '· ' + esc(e.memo) : ''}</div>`).join('')
     || '<div class="box legend">아직 조작 이력이 없습니다.</div>';
   $('#histList').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
@@ -843,10 +857,10 @@ $('#exHist').onclick = async () => {
   } catch (e) { toast(errMsg(e)); }
 };
 // 밸브목록 양식(예시 줄 + 작성방법 시트) 만들기. withData=true 면 현재 목록을 채워서
-const TPL_HEAD = ['순번', '발행상태', '도면번호', '기기번호(구역)', '기기명(*)', '조작요청 내용(*)', '요청사항', '작업책임자(*)', '밸브현재상태',
+const TPL_HEAD = ['순번', '발행상태', '도면번호', '기기번호(구역)', '기기명(*)', '조작요청 내용(*)', '요청사항', '작업책임자(*)', '밸브현재상태', '원복상태',
   '개방일시', '개방시간', '투입일시', '투입시간', '취소요청사유', '도면', '도면 위치(클릭)', '비고(도면 대조)', '앱ID(수정금지)', '상태기준시각(수정금지)',
-  '(참고) 검증', '(참고) 조작자', '(참고) 조작일시', '(참고) 확인자', '(참고) 확인일시'];
-const TPL_EXAMPLE = ['예시', '', '2M-PI-131-001', 'DH PUMP#1', 'HV-301', 'CLOSE', '폐수이송후CLOSE', '박성관', 'CLOSE',
+  '(참고) 검증', '(참고) 조작자', '(참고) 조작일시', '(참고) 확인자', '(참고) 확인일시', '(참고) 단계'];
+const TPL_EXAMPLE = ['예시', '', '2M-PI-131-001', 'DH PUMP#1', 'HV-301', 'CLOSE', '폐수이송후CLOSE', '박성관', 'CLOSE', 'OPEN',
   '2026-09-29', '09:00', '2026-10-16', '18:00', '', 'P1_축열조가압', 'P1_축열조가압!BL34', '도면 표기 다름', '(새 밸브는 비워두기)', '(자동)',
   '← 이 줄은 예시입니다. 순번 칸이 "예시"인 줄은 올릴 때 무시됩니다.'];
 const TPL_GUIDE = [
@@ -861,6 +875,7 @@ const TPL_GUIDE = [
   ['요청사항', '선택', '조작 시 주의사항', '폐수이송후CLOSE'],
   ['작업책임자(*)', '선택', '작업 책임자 이름', '박성관'],
   ['밸브현재상태', '선택', 'OPEN/CLOSE 를 쓰면 앱의 현재상태가 바뀌고 "확인대기"(팀장 확인 필요)가 됨. 모르면 비워두기 → 앱 상태 그대로 유지', 'CLOSE'],
+  ['원복상태', '선택', '정비가 끝나 원래대로 돌릴 상태(OPEN/CLOSE). 비워두면 조작요청의 반대로 자동', 'OPEN'],
   ['개방일시 / 개방시간', '선택', '날짜 2026-09-29 / 시간 09:00', '2026-09-29 / 09:00'],
   ['투입일시 / 투입시간', '선택', '날짜 / 시간', '2026-10-16 / 18:00'],
   ['취소요청사유', '-', '앱에서 사용하지 않음', ''],
@@ -884,9 +899,9 @@ async function downloadTemplate(withData) {
   try {
     await loadXlsxLib();
     const split = t => { const m = String(t || '').match(/^(\S+)\s+(\S+)$/); return m ? [m[1], m[2]] : [t || '', '']; };
-    const rows = withData ? valves.map(v => [v.seq, '', v.pid, v.area, v.tag, v.target, v.note, v.owner, isState(v.current) ? v.current : '',
+    const rows = withData ? valves.map(v => [v.seq, '', v.pid, v.area, v.tag, v.target, v.note, v.owner, isState(v.current) ? v.current : '', v.restore || '',
       ...split(v.workStart), ...split(v.workEnd), '', v.drawing || '', v.drawingLoc || '', v.remark || '', v.id, stateTime(v) ? fmt(new Date(stateTime(v))) : '없음',
-      v.status, v.operatedBy, fmt(v.operatedAt), v.verifiedBy, fmt(v.verifiedAt)]) : [];
+      statusLabel(v), v.operatedBy, fmt(v.operatedAt), v.verifiedBy, fmt(v.verifiedAt), isRestore(v) ? '원복' : '조작']) : [];
     const ws = XLSX.utils.aoa_to_sheet([TPL_HEAD, TPL_EXAMPLE, ...rows]);
     ws['!cols'] = TPL_HEAD.map((h, i) => ({ wch: [3, 4, 6, 16, 17].includes(i) ? 22 : i >= 18 ? 14 : 12 }));
     const gs = XLSX.utils.aoa_to_sheet(TPL_GUIDE);
@@ -1052,6 +1067,7 @@ function mapColumns(head) {
     remark: find('비고'),
     appId: find('앱ID'),
     stateAt: find('상태기준'),
+    restore: find('원복상태'),
   };
   if (c.pid < 0 && h.indexOf('S') >= 0 && find('순번') >= 0) c.pid = find('순번');   // 예전 양식: '순번' 열에 도면번호
   // 시간 칸: '개방시간' 제목이 있으면 그 열, 없으면 날짜 바로 옆 제목 없는 칸
@@ -1094,7 +1110,7 @@ function stateDecision(v, r) {
   if (typeof r.stateAt === 'number') return stateTime(v) > r.stateAt + 999 ? 'stale' : 'apply';
   return 'unknown';                                         // 앱 양식이 아닌 엑셀 → 앱 상태가 더 최신일 수 있음
 }
-const diffInfo = (v, r) => INFO.filter(k => String(v[k] ?? '') !== String(r[k] ?? ''));
+const diffInfo = (v, r) => INFO.filter(k => k in r && String(v[k] ?? '') !== String(r[k] ?? ''));
 async function previewExcel() {
   $('#xlErr').textContent = ''; $('#xlPreview').innerHTML = ''; parsed = null;
   const f = $('#xlFile').files[0]; if (!f) return;
@@ -1114,6 +1130,7 @@ async function previewExcel() {
         workStart: (g(r, c.start) + ' ' + g(r, c.startT)).trim(), workEnd: (g(r, c.end) + ' ' + g(r, c.endT)).trim() };
       if (!rec.tag || /^예시/.test(g(r, c.seq))) return;   // 빈 줄, 예시 줄은 건너뜀
       rec.appId = g(r, c.appId);
+      if (c.restore >= 0) { const rs = g(r, c.restore); rec.restore = rs ? normState(rs, rowNo, warns) : ''; }   // 열이 없으면 앱 값 유지
       if (c.stateAt >= 0) rec.stateAt = parseStamp(r[c.stateAt]);
       if (!rec.area) warns.push(`${rowNo}행: 기기번호(구역)가 비어 있음`);
       rec.target = normState(g(r, c.target), rowNo, warns);
@@ -1157,8 +1174,8 @@ async function previewExcel() {
       ${warns.length ? `<br>자동 수정/확인 필요 ${warns.length}건:<br><span class="legend">${warns.map(esc).join('<br>')}</span>` : ''}</div>`;
   } catch (e) { $('#xlErr').textContent = e.message; }
 }
-const INFO = ['seq', 'area', 'tag', 'pid', 'target', 'note', 'owner', 'phone', 'workStart', 'workEnd', 'drawing', 'drawingLoc', 'remark'];
-const INFO_LABEL = { seq: '순번', area: '구역', tag: '밸브명', pid: '도면번호', target: '요구상태', note: '요청사항', owner: '작업책임자',
+const INFO = ['seq', 'area', 'tag', 'pid', 'target', 'restore', 'note', 'owner', 'phone', 'workStart', 'workEnd', 'drawing', 'drawingLoc', 'remark'];
+const INFO_LABEL = { seq: '순번', area: '구역', tag: '밸브명', pid: '도면번호', target: '요구상태', restore: '원복상태', note: '요청사항', owner: '작업책임자',
   phone: '연락처', workStart: '개방일시', workEnd: '투입일시', drawing: '도면', drawingLoc: '도면위치', remark: '비고' };
 const excelState = cur => ({ current: cur, status: '확인대기', operatedBy: me.name + '(엑셀)', operatedById: me.uid,
   operatedAt: F.serverTimestamp(), verifiedBy: '', verifiedById: '', verifiedAt: null });
@@ -1197,7 +1214,7 @@ $('#xlBtn').onclick = async () => {
         nNew++; continue;
       }
       const upd = {}, changes = [];
-      INFO.forEach(k => { if (String(v[k] ?? '') !== String(info[k] ?? '')) { upd[k] = info[k]; changes.push(`${INFO_LABEL[k]}: ${v[k] || '-'} → ${info[k] || '-'}`); } });
+      INFO.forEach(k => { if (k in info && String(v[k] ?? '') !== String(info[k] ?? '')) { upd[k] = info[k]; changes.push(`${INFO_LABEL[k]}: ${v[k] || '-'} → ${info[k] || '-'}`); } });
       const d = stateDecision(v, r);
       const stateChange = d === 'apply' || (d === 'unknown' && force);
       if (d === 'stale' || (d === 'unknown' && !force)) nSkip++;

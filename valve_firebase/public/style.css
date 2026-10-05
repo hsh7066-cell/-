@@ -1,7 +1,7 @@
 
 :root{
   --bg:#f3f5f8; --card:#fff; --ink:#1b2430; --muted:#66707d; --line:#dde2e8;
-  --brand:#1f3a5f; --open:#0b7a3e; --close:#b42318; --wait:#eab308; --ok:#067647; --bad:#c01048;
+  --brand:#1f3a5f; --open:#0b7a3e; --close:#b42318; --wait:#eab308; --restore:#1d4ed8; --ok:#067647; --bad:#c01048;
   --none:#667085; --hl:#fff6e5;
 }
 *{box-sizing:border-box}
@@ -100,3 +100,6 @@ code{background:#eef0f3;border-radius:4px;padding:1px 4px}
 .ucard.del{opacity:.5}
 .uhead{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.uhead .ust{margin-left:auto;font-size:13px}
 .ubtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.ubtns .btn{padding:7px 10px;font-size:13px}
+.progress{display:flex}.progress #prog2{background:var(--restore)}
+.valve.s-restore{border-left-color:var(--restore);background:#eff6ff}
+.b-조작완료{background:#d1fadf;color:var(--ok)}.b-원복완료{background:#dbeafe;color:#1e40af}

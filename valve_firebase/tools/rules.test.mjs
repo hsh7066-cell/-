@@ -53,6 +53,7 @@ const verify = (fs_, uid, name, ok, rev) => {
 await t("kim operates as lee (forged name)", operate(K, "kim", "이기계", "CLOSE", 0), false);
 await t("kim operates with wrong rev", operate(K, "kim", "김운영", "CLOSE", 5), false);
 await t("kim operates CLOSE", operate(K, "kim", "김운영", "CLOSE", 0), true);
+await t("bad phase blocked", updateDoc(doc(K, "valves/v1"), { phase: "기타", rev: 2 }), false);
 await t("kim self-verifies", verify(K, "kim", "김운영", true, 1), false);
 await t("admin (no canVerify) verifies", verify(A, "admin", "관리자", true, 1), false);
 await t("lee verifies as kim id", verify(L, "kim", "김운영", true, 1), false);
