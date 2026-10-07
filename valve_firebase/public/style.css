@@ -103,3 +103,10 @@ code{background:#eef0f3;border-radius:4px;padding:1px 4px}
 .valve.s-ok{background:#f0fdf4}
 .valve.s-rwait{border-left-color:var(--restore);background:#eff6ff}
 .b-조작완료,.b-원복완료{background:#d1fadf;color:var(--ok)}.b-원복대기{background:#dbeafe;color:#1e40af}
+/* 밸브 카드 전체 칠하기 (색으로 한눈에 구별) */
+.valve{background:#e5e7eb;border:2px solid #9ca3af;border-left-width:8px}                     /* 회색: 미조작 */
+.valve.s-wait{background:#fde68a;border-color:#ca8a04}                                       /* 노랑: 조작 후 팀장 확인대기 */
+.valve.s-rwait{background:#bfdbfe;border-color:#1d4ed8}                                      /* 파랑: 원복 후 팀장 확인대기 */
+.valve.s-ok{background:#bbf7d0;border-color:#15803d}                                         /* 녹색: 팀장 확인완료 */
+.valve.s-bad,.valve.s-diff{background:#fecaca;border-color:#b91c1c}                          /* 빨강: 불일치/상태 다름 */
+.valve .sub{color:#374151}
