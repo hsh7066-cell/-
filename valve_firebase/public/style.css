@@ -99,7 +99,7 @@ code{background:#eef0f3;border-radius:4px;padding:1px 4px}
 .ucard.del{opacity:.5}
 .uhead{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.uhead .ust{margin-left:auto;font-size:13px}
 .ubtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.ubtns .btn{padding:7px 10px;font-size:13px}
-.progress{display:flex}.progress #prog2{background:#065f46}
+.progress{display:flex}.progress #prog2{background:#1d4ed8}
 .valve.s-ok{background:#f0fdf4}
 .valve.s-rwait{border-left-color:var(--restore);background:#eff6ff}
 .b-조작완료,.b-원복완료{background:#d1fadf;color:var(--ok)}.b-원복대기{background:#dbeafe;color:#1e40af}
@@ -110,3 +110,5 @@ code{background:#eef0f3;border-radius:4px;padding:1px 4px}
 .valve.s-ok{background:#bbf7d0;border-color:#15803d}                                         /* 녹색: 팀장 확인완료 */
 .valve.s-bad,.valve.s-diff{background:#fecaca;border-color:#b91c1c}                          /* 빨강: 불일치/상태 다름 */
 .valve .sub{color:#374151}
+/* 원복 단계는 대기·완료 모두 파랑. 원복완료 배지는 진한 파랑 */
+.b-원복완료{background:#1d4ed8;color:#fff}.b-원복완료::after{content:' ✔'}

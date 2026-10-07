@@ -181,7 +181,7 @@
 import * as F from './vendor/firebase.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '2026-10-08 v9';   // 화면 버전 (메뉴·로그인 화면에 표시)
+const APP_VERSION = '2026-10-08 v10';   // 화면 버전 (메뉴·로그인 화면에 표시)
 const EMAIL_DOMAIN = '@valve.local';   // 아이디 → 로그인용 이메일 형식 (실제 메일은 보내지 않음)
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -399,7 +399,7 @@ function cls(v) {
   if (v.status === '불일치') return 's-bad';
   if (isDiff(v)) return 's-diff';
   if (v.status === '확인대기') return isRestore(v) ? 's-rwait' : 's-wait';   // 노랑: 조작 후 / 파랑: 원복 후 팀장 확인 대기
-  if (v.status === '확인완료') return 's-ok';                                // 녹색: 팀장 확인 완료
+  if (v.status === '확인완료') return isRestore(v) ? 's-rwait' : 's-ok';     // 녹색: 조작완료 / 파랑: 원복완료(원복 단계는 모두 파랑)
   return '';
 }
 const FILTERS = {
