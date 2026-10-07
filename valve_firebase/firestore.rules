@@ -16,7 +16,7 @@ service cloud.firestore {
     }
     function isAdmin() { return isActive() && me().role == 'admin'; }
     // 확인(검증) 권한: 관리자가 사용자 목록에서 지정한 사람(예: 운영부 팀장)만
-    function canVerify() { return isActive() && me().get('canVerify', false) == true; }
+    function canVerify() { return isActive() && (me().role == 'admin' || me().get('canVerify', false) == true); }
     function isState(s) { return s == 'OPEN' || s == 'CLOSE'; }
     function onlyChanged(keys) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
@@ -89,14 +89,13 @@ service cloud.firestore {
           && d.verifiedBy == '' && d.verifiedById == '' && d.verifiedAt == null
           && d.rev == resource.data.rev + 1;
       }
-      // 확인(검증): 확인 권한이 있고, 조작한 사람과 다른 사람만
+      // 확인(검증): 확인 권한(운영팀장) 또는 관리자. 본인이 조작한 것도 확인 가능
       function isVerify() {
         let d = request.resource.data;
         return canVerify() && resource.data.active == true
           && onlyChanged(['status', 'verifiedBy', 'verifiedById', 'verifiedAt', 'rev'])
           && resource.data.status in ['확인대기', '불일치']
           && d.status in ['확인완료', '불일치']
-          && resource.data.operatedById != request.auth.uid
           && d.verifiedById == request.auth.uid && d.verifiedBy == me().name
           && d.verifiedAt == request.time
           && d.rev == resource.data.rev + 1;

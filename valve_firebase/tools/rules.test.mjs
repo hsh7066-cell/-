@@ -54,11 +54,21 @@ await t("kim operates as lee (forged name)", operate(K, "kim", "이기계", "CLO
 await t("kim operates with wrong rev", operate(K, "kim", "김운영", "CLOSE", 5), false);
 await t("kim operates CLOSE", operate(K, "kim", "김운영", "CLOSE", 0), true);
 await t("bad phase blocked", updateDoc(doc(K, "valves/v1"), { phase: "기타", rev: 2 }), false);
-await t("kim self-verifies", verify(K, "kim", "김운영", true, 1), false);
-await t("admin (no canVerify) verifies", verify(A, "admin", "관리자", true, 1), false);
+await t("kim (no 확인권한) self-verifies", verify(K, "kim", "김운영", true, 1), false);
 await t("lee verifies as kim id", verify(L, "kim", "김운영", true, 1), false);
 await t("lee verifies", verify(L, "lee", "이기계", true, 1), true);
 await t("lee verifies again (already done)", verify(L, "lee", "이기계", true, 2), false);
+// 운영팀장(lee)·관리자는 본인 조작분도 확인 가능 (별도 밸브 v9)
+await t("admin creates v9", setDoc(doc(A, "valves/v9"), { ...valve, tag: "HV-999" }), true);
+const op9 = (fs_, uid, name, state, rev, ok) => { const bb = writeBatch(fs_);
+  bb.update(doc(fs_, "valves/v9"), ok ? { status: "확인완료", verifiedBy: name, verifiedById: uid, verifiedAt: serverTimestamp(), rev: rev + 1 }
+    : { current: state, status: "확인대기", operatedBy: name, operatedById: uid, operatedAt: serverTimestamp(), verifiedBy: "", verifiedById: "", verifiedAt: null, rev: rev + 1 });
+  bb.set(doc(collection(fs_, "events")), { valveId: "v9", kind: ok ? "확인" : "조작", userId: uid, userName: name, ts: serverTimestamp(), rev: rev + 1 });
+  return bb.commit(); };
+await t("lee operates v9", op9(L, "lee", "이기계", "CLOSE", 0, false), true);
+await t("lee (팀장) verifies own operation", op9(L, "lee", "이기계", "", 1, true), true);
+await t("admin operates v9", op9(A, "admin", "관리자", "OPEN", 2, false), true);
+await t("admin verifies own operation", op9(A, "admin", "관리자", "", 3, true), true);
 await t("fake event without valve change", setDoc(doc(collection(K, "events")), { valveId: "v1", kind: "조작", userId: "kim", userName: "김운영", ts: serverTimestamp(), rev: 3 }), false);
 await t("admin forges verification", updateDoc(doc(A, "valves/v1"), { status: "확인완료", verifiedBy: "관리자", verifiedById: "admin", rev: 3 }), false);
 await t("admin edits note", updateDoc(doc(A, "valves/v1"), { note: "메모", rev: 3 }), true);

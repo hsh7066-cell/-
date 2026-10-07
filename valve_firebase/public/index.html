@@ -181,7 +181,7 @@
 import * as F from './vendor/firebase.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '2026-10-07 v6';   // 화면 버전 (메뉴·로그인 화면에 표시)
+const APP_VERSION = '2026-10-07 v7';   // 화면 버전 (메뉴·로그인 화면에 표시)
 const EMAIL_DOMAIN = '@valve.local';   // 아이디 → 로그인용 이메일 형식 (실제 메일은 보내지 않음)
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -458,8 +458,7 @@ async function openDetail(id) {
   } catch (e) {}
   if (busy || openId !== id) return;
   const canVerify = (v.status === '확인대기' || v.status === '불일치');
-  const iCanVerify = me.canVerify === true;
-  const mine = v.operatedById === me.uid;
+  const iCanVerify = me.canVerify === true || me.role === 'admin';   // 운영팀장 권한 또는 관리자 (본인 조작분도 확인 가능)
   const isAdmin = me.role === 'admin';
   $('#detailBody').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
@@ -490,8 +489,7 @@ async function openDetail(id) {
       <div class="legend">작업 시작 때는 <b>[조작]</b>, 정비가 끝나 원래대로 돌릴 때는 <b>[원복]</b> · 노란 테두리 = 지금 단계</div>
     </div>
     ${canVerify ? `<div class="section"><h3>② 확인(검증) — 확인 권한자(운영부 팀장)가 현장에서 직접 보고 누르세요</h3>
-      ${mine ? `<div class="warn">본인이 조작한 밸브입니다. 다른 확인 권한자가 확인해야 합니다.</div>`
-      : !iCanVerify ? `<div class="warn">${esc(v.operatedBy)} 님이 ${esc(v.current)}(으)로 조작했습니다. 확인은 확인 권한자(운영부 팀장)만 할 수 있습니다.</div>` : `
+      ${!iCanVerify ? `<div class="warn">${esc(v.operatedBy)} 님이 ${esc(v.current)}(으)로 조작했습니다. 확인은 확인 권한자(운영부 팀장)만 할 수 있습니다.</div>` : `
       <div class="warn">${esc(v.operatedBy)} 님이 <b>${esc(v.current)}</b>(으)로 조작했다고 등록했습니다. 실제 밸브도 ${esc(v.current)} 상태입니까?</div>
       <input id="vMemo" placeholder="메모 (불일치일 때 필수: 실제 상태/사유)">
       <div class="row" style="margin-top:8px">
@@ -525,7 +523,7 @@ async function openDetail(id) {
   openSheet('detail');
   $('#dClose').onclick = closeDetail;
   $('#detailBody').querySelectorAll('.ops button').forEach(b => b.onclick = () => confirmOperate(v, b.dataset.s, b.dataset.p));
-  if (canVerify && !mine && iCanVerify) { $('#vOk').onclick = () => doVerify(v, true); $('#vNg').onclick = () => doVerify(v, false); }
+  if (canVerify && iCanVerify) { $('#vOk').onclick = () => doVerify(v, true); $('#vNg').onclick = () => doVerify(v, false); }
   ['phCam', 'phAlbum'].forEach(id => $('#' + id).onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     busy = true; $('#phErr').textContent = '사진 올리는 중...';
@@ -972,7 +970,8 @@ function renderUsers() {
       <div class="uhead"><b>${esc(u.name)}</b> <span class="legend">${esc(u.login)}${u.dept ? ' · ' + esc(u.dept) : ''} · ${u.role === 'admin' ? '관리자' : '일반'}</span>
         <span class="ust">${u.active ? '사용' : '<span style="color:var(--bad)">중지</span>'}</span></div>
       <div class="ubtns">
-        <button class="btn ${u.canVerify ? '' : 'sec'}" data-cv="${u.uid}" data-v="${u.canVerify ? 0 : 1}">${u.canVerify ? '✔ 팀장(확인)' : '확인권한 없음'}</button>
+        ${u.role === 'admin' ? '<button class="btn" disabled>✔ 확인 가능(관리자)</button>'
+          : `<button class="btn ${u.canVerify ? '' : 'sec'}" data-cv="${u.uid}" data-v="${u.canVerify ? 0 : 1}">${u.canVerify ? '✔ 팀장(확인)' : '확인권한 없음'}</button>`}
         ${secrets.has(u.uid) ? btn('data-see', u.uid, '👁 비번보기') : ''}
         ${btn('data-pw', u.uid, '비번변경')}
         ${u.uid === me.uid ? '' : btn('data-uid', u.uid, u.active ? '사용중지' : '사용재개', `data-v="${u.active ? 0 : 1}"`) + `<button class="btn" style="background:var(--bad)" data-rm="${u.uid}">삭제</button>`}
