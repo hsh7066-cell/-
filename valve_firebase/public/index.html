@@ -181,7 +181,7 @@
 import * as F from './vendor/firebase.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSION = '2026-10-07 v8';   // 화면 버전 (메뉴·로그인 화면에 표시)
+const APP_VERSION = '2026-10-08 v9';   // 화면 버전 (메뉴·로그인 화면에 표시)
 const EMAIL_DOMAIN = '@valve.local';   // 아이디 → 로그인용 이메일 형식 (실제 메일은 보내지 않음)
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -433,7 +433,7 @@ function render() {
       <div class="main"><div class="tag">${esc(v.seq)}. ${esc(v.tag)}${v.photoCount ? `<span class="cam">📷${v.photoCount}</span>` : ''}</div>
         <div class="sub"><span class="badge b-${esc(statusLabel(v))}">${esc(statusLabel(v))}</span>
           ${v.operatedBy ? esc(v.operatedBy) + ' ' + esc(fmt(v.operatedAt).slice(5, 16)) : ''}${v.note ? ' · ' + esc(v.note) : ''}</div></div>
-      <div class="states"><span>${isRestore(v) ? '원복' : '요구'} <span class="st outline ${esc(expectOf(v))}">${esc(expectOf(v) || '-')}</span></span>
+      <div class="states"><span>요구 <span class="st outline ${esc(v.target)}">${esc(v.target || '-')}</span></span>
         <span>현재 <span class="st ${esc(v.current)}">${esc(v.current)}</span></span></div></div>`;
   }
   $('#list').innerHTML = html || `<div class="box legend">${valves.length ? '해당하는 밸브가 없습니다.' : '등록된 밸브가 없습니다. 관리자가 [관리자] 탭에서 엑셀을 불러오세요.'}</div>`;
@@ -465,8 +465,8 @@ async function openDetail(id) {
       <div><h2>${esc(v.tag)}</h2><div class="legend">${esc(v.area)}${v.pid ? ' · ' + esc(v.pid) : ''} · 순번 ${esc(v.seq)}</div></div>
       <button class="btn sec" id="dClose">닫기</button></div>
     <div class="bigstate">
-      <div><small>단계: <b>${isRestore(v) ? '원복' : '조작'}</b></small><span class="st outline ${esc(expectOf(v))}">${esc(expectOf(v) || '-')}</span>
-        <div class="legend" style="margin:4px 0 0">조작 ${esc(v.target || '-')} → 원복 ${esc(restoreOf(v) || '-')}</div></div>
+      <div><small>요구상태(작업요청)</small><span class="st outline ${esc(v.target)}">${esc(v.target || '-')}</span>
+        <div class="legend" style="margin:4px 0 0">단계: <b>${isRestore(v) ? '원복' : '조작'}</b> · 원복 시 ${esc(restoreOf(v) || '-')}</div></div>
       <div><small>현재상태</small><span class="st ${esc(v.current)}">${esc(v.current)}</span></div>
       <div><small>검증</small><span class="badge b-${esc(statusLabel(v))}" style="font-size:14px">${esc(statusLabel(v))}</span></div>
     </div>
