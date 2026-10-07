@@ -40,8 +40,7 @@ input,select,textarea{width:100%;padding:10px;border:1px solid var(--line);borde
   border-radius:10px;padding:10px 12px;margin-bottom:6px;cursor:pointer}
 .valve.s-wait{border-left-color:var(--wait)}
 .valve.s-ok{border-left-color:var(--ok)}
-.valve.s-bad{border-left-color:var(--bad);background:#fff1f3}
-.valve.s-diff{border-left-color:var(--bad)}
+.valve.s-bad,.valve.s-diff{border-color:var(--bad);border-left-color:var(--bad);background:#fecdd3}
 .valve.flash{animation:flash 2s}
 @keyframes flash{0%{background:#fff3c4}100%{background:#fff}}
 .valve .main{flex:1;min-width:0}
@@ -100,6 +99,7 @@ code{background:#eef0f3;border-radius:4px;padding:1px 4px}
 .ucard.del{opacity:.5}
 .uhead{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.uhead .ust{margin-left:auto;font-size:13px}
 .ubtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.ubtns .btn{padding:7px 10px;font-size:13px}
-.progress{display:flex}.progress #prog2{background:var(--restore)}
-.valve.s-restore{border-left-color:var(--restore);background:#eff6ff}
-.b-조작완료{background:#d1fadf;color:var(--ok)}.b-원복완료{background:#dbeafe;color:#1e40af}
+.progress{display:flex}.progress #prog2{background:#065f46}
+.valve.s-ok{background:#f0fdf4}
+.valve.s-rwait{border-left-color:var(--restore);background:#eff6ff}
+.b-조작완료,.b-원복완료{background:#d1fadf;color:var(--ok)}.b-원복대기{background:#dbeafe;color:#1e40af}
