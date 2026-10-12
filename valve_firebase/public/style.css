@@ -112,3 +112,4 @@ code{background:#eef0f3;border-radius:4px;padding:1px 4px}
 .valve .sub{color:#374151}
 /* 원복 단계는 대기·완료 모두 파랑. 원복완료 배지는 진한 파랑 */
 .b-원복완료{background:#1d4ed8;color:#fff}.b-원복완료::after{content:' ✔'}
+.updbar{background:#1d4ed8;color:#fff;text-align:center;font-size:14px;font-weight:700;padding:8px;cursor:pointer}

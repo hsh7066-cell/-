@@ -167,3 +167,8 @@
 - 내 PC 시험: `firebase emulators:start --project demo-valve` → http://localhost:5000
   (localhost 로 열면 자동으로 에뮬레이터에 연결, firebase-config.js 에 아무 값이나 있어야 함)
 - 보안 규칙 시험: 에뮬레이터 실행 중 `npm i @firebase/rules-unit-testing firebase && node tools/rules.test.mjs`
+
+## 새 버전 올리기 (자동 업데이트)
+- `public/index.html` 의 `APP_VERSION` 과 `public/version.json` 의 `version` 을 **같은 값**으로 바꾼 뒤 `firebase deploy`.
+- 휴대폰·크롬 탭은 다시 볼 때, 화면을 켤 때, 5분마다 version.json 을 확인해 새 버전이면 자동 새로고침합니다
+  (조작 등록 중이거나 입력 중이면 파란 띠 '새 버전이 있습니다'를 띄우고 기다림).
